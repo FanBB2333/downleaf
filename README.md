@@ -1,12 +1,12 @@
 # Downleaf
 
-将 Overleaf 项目挂载为本地目录，用你喜欢的编辑器直接编辑 LaTeX 项目。
+Mount Overleaf projects as local directories and edit LaTeX files with your favorite editor.
 
-Downleaf 在本地启动一个 WebDAV 服务器，将 Overleaf 上的项目文件映射为标准文件系统。无需安装内核扩展，macOS / Linux / Windows 均可使用。
+Downleaf runs a local WebDAV server that maps Overleaf project files to a standard filesystem. No kernel extensions required — works on macOS, Linux, and Windows.
 
-## 快速开始
+## Quick Start
 
-### 1. 构建
+### 1. Build
 
 ```bash
 git clone https://github.com/FanBB2333/downleaf.git
@@ -14,24 +14,24 @@ cd downleaf
 go build -o downleaf ./cmd/downleaf
 ```
 
-### 2. 配置
+### 2. Configure
 
-从浏览器中复制 Overleaf 的 session cookie，创建 `.env` 文件：
+Copy your Overleaf session cookie from the browser and create a `.env` file:
 
 ```
 SITE=https://www.overleaf.com/
 COOKIES=overleaf_session2=s%3Axxxxxxxxxx...
 ```
 
-> Cookie 获取方式：登录 Overleaf → F12 开发者工具 → Application → Cookies → 复制 `overleaf_session2` 的值
+> How to get the cookie: Log in to Overleaf → F12 Developer Tools → Application → Cookies → copy the `overleaf_session2` value
 
-### 3. 挂载
+### 3. Mount
 
 ```bash
 ./downleaf mount
 ```
 
-所有项目会出现在 `~/downleaf/` 下：
+All projects appear under `~/downleaf/`:
 
 ```
 ~/downleaf/
@@ -44,7 +44,7 @@ COOKIES=overleaf_session2=s%3Axxxxxxxxxx...
 │   └── ...
 ```
 
-然后就可以用任意编辑器打开：
+Open with any editor:
 
 ```bash
 code ~/downleaf/My-Paper          # VS Code
@@ -52,15 +52,15 @@ vim ~/downleaf/My-Paper/main.tex  # Vim
 cd ~/downleaf/My-Paper && claude  # Claude Code
 ```
 
-保存文件后修改会自动同步到 Overleaf。按 `Ctrl+C` 停止。
+Changes are automatically synced to Overleaf on save. Press `Ctrl+C` to stop.
 
-## 示例：用 Claude Code 编辑论文
+## Example: Editing a Paper with Claude Code
 
 ```bash
-# 终端 1：以 batch 模式挂载（编辑期间不同步，避免频繁上传）
+# Terminal 1: Mount in batch mode (defers sync to avoid frequent uploads)
 ./downleaf mount -i --batch
 
-# 交互式选择项目：
+# Interactive project selection:
 #   Select a project to mount (52 projects):
 #     0) [all projects]
 #     1) My-Paper
@@ -68,42 +68,42 @@ cd ~/downleaf/My-Paper && claude  # Claude Code
 #   Enter number (0 for all): 1
 #   Selected: My-Paper (692fce31ee51890d4f6f14af)
 
-# 终端 2：用 Claude Code 编辑
+# Terminal 2: Edit with Claude Code
 cd ~/downleaf/My-Paper
 claude
 
-# 终端 3：编辑完成后，一次性推送所有修改到 Overleaf
+# Terminal 3: When done, push all changes to Overleaf at once
 ./downleaf sync
 ```
 
-## 命令一览
+## Commands
 
-| 命令 | 说明 |
-|------|------|
-| `downleaf ls` | 列出所有项目 |
-| `downleaf mount` | 挂载项目到本地（默认 `~/downleaf`） |
-| `downleaf mount -i --batch` | 交互选择项目，batch 模式 |
-| `downleaf sync` | 推送 batch 模式下的本地修改 |
-| `downleaf download <id>` | 下载项目到本地目录 |
-| `downleaf umount` | 卸载 |
-| `downleaf help` | 查看帮助 |
+| Command | Description |
+|---------|-------------|
+| `downleaf ls` | List all projects |
+| `downleaf mount` | Mount projects locally (default `~/downleaf`) |
+| `downleaf mount -i --batch` | Interactive project selection, batch mode |
+| `downleaf sync` | Push local changes from batch mode |
+| `downleaf download <id>` | Download a project to a local directory |
+| `downleaf umount` | Unmount |
+| `downleaf help` | Show help |
 
-mount 支持的选项：`--project <name|id>`, `--batch`, `-i`, `--port <port>`
+Mount options: `--project <name|id>`, `--batch`, `-i`, `--port <port>`
 
-## 文档
+## Documentation
 
-- [CLI 命令参考](docs/cli-reference.md)
-- [快速开始指南](docs/getting-started.md)
-- [系统架构](docs/architecture.md)
-- [故障排查](docs/troubleshooting.md)
+- [CLI Reference](docs/cli-reference.md)
+- [Getting Started](docs/getting-started.md)
+- [Architecture](docs/architecture.md)
+- [Troubleshooting](docs/troubleshooting.md)
 
-## 工作原理
+## How It Works
 
-1. 通过 Overleaf 的 Cookie 认证获取访问权限
-2. 使用 Socket.IO v0 协议获取项目文件树和文档内容
-3. 在本地启动 WebDAV 服务器，将 Overleaf 的文件结构映射为标准文件系统
-4. 通过 `mount_webdav`（macOS）或 `davfs`（Linux）挂载到本地目录
-5. 文件修改通过 Overleaf REST API 回写
+1. Authenticates with Overleaf using session cookies
+2. Fetches project file trees and document content via Socket.IO v0
+3. Starts a local WebDAV server mapping Overleaf's file structure to a standard filesystem
+4. Mounts to a local directory via `mount_webdav` (macOS) or `davfs` (Linux)
+5. File changes are written back through the Overleaf REST API
 
 ## License
 
