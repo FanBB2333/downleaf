@@ -184,7 +184,7 @@ func (s *SocketIOClient) JoinDoc(projectID, docID string) (string, int, error) {
 
 	ackPrefix := fmt.Sprintf("6:::%d+", ackID)
 
-	for range 20 {
+	for range 5 {
 		data, err := s.poll(projectID)
 		if err != nil {
 			return "", 0, fmt.Errorf("poll joinDoc: %w", err)

@@ -145,7 +145,14 @@ func cmdCat(client *api.Client, projectID, docID string) error {
 
 	content, version, err := sio.JoinDoc(projectID, docID)
 	if err != nil {
-		return fmt.Errorf("join doc: %w", err)
+		// If joinDoc fails, try downloading as binary file
+		fmt.Fprintf(os.Stderr, "note: joinDoc failed (%v), trying binary download\n", err)
+		data, dlErr := client.DownloadFile(projectID, docID)
+		if dlErr != nil {
+			return fmt.Errorf("download: %w", dlErr)
+		}
+		os.Stdout.Write(data)
+		return nil
 	}
 
 	fmt.Printf("--- version: %d ---\n", version)
