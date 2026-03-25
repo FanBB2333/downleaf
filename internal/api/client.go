@@ -1,15 +1,28 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/FanBB2333/downleaf/internal/auth"
 	"github.com/FanBB2333/downleaf/internal/model"
 )
+
+var (
+	csrfMetaRe    = regexp.MustCompile(`<meta\s+name="ol-csrfToken"\s+content="([^"]*)"`)
+	projectMetaRe = regexp.MustCompile(`<meta\s+name="ol-project"\s+content="([^"]*)"`)
+)
+
+func htmlUnescape(s string) string {
+	return html.UnescapeString(s)
+}
 
 // Client is the Overleaf REST API client.
 type Client struct {
@@ -181,6 +194,79 @@ func (c *Client) MoveEntity(projectID, entityType, entityID, newFolderID string)
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+
+	return c.doJSON(req, nil)
+}
+
+// GetProjectDetail fetches the editor page and parses the full project metadata
+// including the nested folder tree with entity IDs.
+func (c *Client) GetProjectDetail(projectID string) (*model.ProjectDetail, error) {
+	req, err := c.request("GET", "/project/"+projectID, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("get project detail: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("get project detail returned %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	html := string(body)
+
+	detail := &model.ProjectDetail{}
+
+	// Extract CSRF token
+	if m := csrfMetaRe.FindStringSubmatch(html); len(m) > 1 {
+		detail.CSRFToken = m[1]
+		// Update identity's CSRF token
+		c.Identity.CSRFToken = m[1]
+	}
+
+	// Extract project JSON from meta tag
+	if m := projectMetaRe.FindStringSubmatch(html); len(m) > 1 {
+		projectJSON := htmlUnescape(m[1])
+		if err := json.Unmarshal([]byte(projectJSON), &detail.Project); err != nil {
+			return nil, fmt.Errorf("parse project JSON: %w", err)
+		}
+	} else {
+		return nil, fmt.Errorf("could not find project metadata in editor page")
+	}
+
+	return detail, nil
+}
+
+// UploadFile uploads a file to the project using multipart/form-data.
+func (c *Client) UploadFile(projectID, folderID, fileName string, content []byte) error {
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+
+	if err := writer.WriteField("_csrf", c.Identity.CSRFToken); err != nil {
+		return err
+	}
+
+	part, err := writer.CreateFormFile("qqfile", fileName)
+	if err != nil {
+		return err
+	}
+	if _, err := part.Write(content); err != nil {
+		return err
+	}
+	writer.Close()
+
+	req, err := c.request("POST", "/project/"+projectID+"/upload?folder_id="+folderID, &buf)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	return c.doJSON(req, nil)
 }
