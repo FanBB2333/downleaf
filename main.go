@@ -1,0 +1,38 @@
+package main
+
+import (
+	"embed"
+
+	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/options"
+	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+
+	"github.com/FanBB2333/downleaf/internal/gui"
+)
+
+//go:embed all:frontend
+var assets embed.FS
+
+func main() {
+	app := gui.NewApp()
+
+	err := wails.Run(&options.App{
+		Title:            "Downleaf",
+		Width:            860,
+		Height:           620,
+		MinWidth:         640,
+		MinHeight:        480,
+		BackgroundColour: &options.RGBA{R: 250, G: 250, B: 250, A: 1},
+		OnStartup:        app.Startup,
+		OnShutdown:       app.Shutdown,
+		Bind: []interface{}{
+			app,
+		},
+		AssetServer: &assetserver.Options{
+			Assets: assets,
+		},
+	})
+	if err != nil {
+		println("Error:", err.Error())
+	}
+}
