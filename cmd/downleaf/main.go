@@ -39,6 +39,11 @@ func run() error {
 		cmd = os.Args[1]
 	}
 
+	if cmd == "help" || cmd == "--help" || cmd == "-h" {
+		printUsage()
+		return nil
+	}
+
 	// Authenticate
 	fmt.Printf("Authenticating with %s ...\n", siteURL)
 	identity, err := auth.LoginWithCookies(siteURL, cookies)
@@ -90,18 +95,22 @@ func run() error {
 		}
 		return downfuse.Unmount(mountpoint)
 	default:
-		fmt.Println("Usage: downleaf <command> [args]")
-		fmt.Println()
-		fmt.Println("Commands:")
-		fmt.Println("  ls                                 List all projects")
-		fmt.Println("  tree <project-id>                  Show project file tree")
-		fmt.Println("  cat <project-id> <doc-id>          Print document content")
-		fmt.Println("  download <project-id> [dest-dir]   Download project files locally")
-		fmt.Println("  mount [mountpoint] [--project <name|id>]")
-		fmt.Println("                                     Mount filesystem (default: ~/overleaf)")
-		fmt.Println("  umount [mountpoint]                Unmount filesystem")
+		printUsage()
 		return nil
 	}
+}
+
+func printUsage() {
+	fmt.Println("Usage: downleaf <command> [args]")
+	fmt.Println()
+	fmt.Println("Commands:")
+	fmt.Println("  ls                                 List all projects")
+	fmt.Println("  tree <project-id>                  Show project file tree")
+	fmt.Println("  cat <project-id> <doc-id>          Print document content")
+	fmt.Println("  download <project-id> [dest-dir]   Download project files locally")
+	fmt.Println("  mount [mountpoint] [--project <name|id>]")
+	fmt.Println("                                     Mount filesystem (default: ~/overleaf)")
+	fmt.Println("  umount [mountpoint]                Unmount filesystem")
 }
 
 func cmdLS(client *api.Client) error {
