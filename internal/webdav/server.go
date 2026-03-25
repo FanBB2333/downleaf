@@ -30,6 +30,13 @@ type fileMeta struct {
 	name      string
 }
 
+// resolveEntry caches the result of a path resolution (including negative results).
+type resolveEntry struct {
+	info      *pathInfo
+	err       error
+	fetchedAt time.Time
+}
+
 // OverleafFS implements gowebdav.FileSystem backed by Overleaf.
 type OverleafFS struct {
 	Client        *api.Client
@@ -37,8 +44,9 @@ type OverleafFS struct {
 	BatchMode     bool
 	ProjectFilter string
 
-	projectsMu sync.RWMutex
-	projects   []model.Project
+	projectsMu      sync.RWMutex
+	projects        []model.Project
+	projectsFetched time.Time
 
 	sioMu   sync.Mutex
 	sioConn map[string]*api.SocketIOClient
@@ -46,15 +54,24 @@ type OverleafFS struct {
 
 	metaMu  sync.RWMutex
 	metaMap map[string]fileMeta
+
+	resolveMu    sync.RWMutex
+	resolveCache map[string]*resolveEntry
 }
+
+const (
+	resolveTTL  = 30 * time.Second
+	projectsTTL = 60 * time.Second
+)
 
 func NewOverleafFS(client *api.Client) *OverleafFS {
 	return &OverleafFS{
-		Client:  client,
-		Cache:   cache.New(5 * time.Minute),
-		sioConn: make(map[string]*api.SocketIOClient),
-		trees:   make(map[string]*model.ProjectMeta),
-		metaMap: make(map[string]fileMeta),
+		Client:       client,
+		Cache:        cache.New(5 * time.Minute),
+		sioConn:      make(map[string]*api.SocketIOClient),
+		trees:        make(map[string]*model.ProjectMeta),
+		metaMap:      make(map[string]fileMeta),
+		resolveCache: make(map[string]*resolveEntry),
 	}
 }
 
@@ -66,7 +83,49 @@ func (o *OverleafFS) refreshProjects() error {
 		return err
 	}
 	o.projects = projects
+	o.projectsFetched = time.Now()
 	return nil
+}
+
+func (o *OverleafFS) refreshProjectsIfStale() error {
+	o.projectsMu.RLock()
+	fresh := len(o.projects) > 0 && time.Since(o.projectsFetched) < projectsTTL
+	o.projectsMu.RUnlock()
+	if fresh {
+		return nil
+	}
+	return o.refreshProjects()
+}
+
+// resolveWithCache wraps resolve() with a short-TTL cache for both positive and negative results.
+func (o *OverleafFS) resolveWithCache(name string) (*pathInfo, error) {
+	key := path.Clean(strings.TrimPrefix(name, "/"))
+
+	o.resolveMu.RLock()
+	if entry, ok := o.resolveCache[key]; ok && time.Since(entry.fetchedAt) < resolveTTL {
+		o.resolveMu.RUnlock()
+		return entry.info, entry.err
+	}
+	o.resolveMu.RUnlock()
+
+	info, err := o.resolve(name)
+
+	o.resolveMu.Lock()
+	o.resolveCache[key] = &resolveEntry{info: info, err: err, fetchedAt: time.Now()}
+	o.resolveMu.Unlock()
+
+	return info, err
+}
+
+// invalidateResolveCache clears all resolve cache entries for a given project name prefix.
+func (o *OverleafFS) invalidateResolveCache(prefix string) {
+	o.resolveMu.Lock()
+	for k := range o.resolveCache {
+		if strings.HasPrefix(k, prefix) || k == prefix {
+			delete(o.resolveCache, k)
+		}
+	}
+	o.resolveMu.Unlock()
 }
 
 func (o *OverleafFS) getActiveProjects() []model.Project {
@@ -130,6 +189,15 @@ func (o *OverleafFS) invalidateTree(projectID string) {
 		delete(o.sioConn, projectID)
 	}
 	o.sioMu.Unlock()
+	// Also clear resolve cache — find the project name for this ID
+	o.projectsMu.RLock()
+	for _, p := range o.projects {
+		if p.ID == projectID {
+			o.invalidateResolveCache(sanitizeName(p.Name))
+			break
+		}
+	}
+	o.projectsMu.RUnlock()
 }
 
 func (o *OverleafFS) getDocContent(projectID, docID string) ([]byte, error) {
@@ -366,7 +434,7 @@ func (o *OverleafFS) OpenFile(ctx context.Context, name string, flag int, perm o
 	name = path.Clean(name)
 
 	if flag&os.O_CREATE != 0 {
-		info, err := o.resolve(name)
+		info, err := o.resolveWithCache(name)
 		if err == os.ErrNotExist {
 			return o.createFile(name)
 		}
@@ -379,7 +447,7 @@ func (o *OverleafFS) OpenFile(ctx context.Context, name string, flag int, perm o
 		return o.openExisting(info, flag)
 	}
 
-	info, err := o.resolve(name)
+	info, err := o.resolveWithCache(name)
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +466,7 @@ func (o *OverleafFS) openExisting(info *pathInfo, flag int) (gowebdav.File, erro
 
 func (o *OverleafFS) openDir(info *pathInfo) (gowebdav.File, error) {
 	if info.isRoot {
-		if err := o.refreshProjects(); err != nil {
+		if err := o.refreshProjectsIfStale(); err != nil {
 			return nil, err
 		}
 		var entries []fs.FileInfo
@@ -448,8 +516,12 @@ func (o *OverleafFS) openDir(info *pathInfo) (gowebdav.File, error) {
 func (o *OverleafFS) openFileForRead(info *pathInfo) (gowebdav.File, error) {
 	cacheKey := info.project.ID + "/" + info.entityID()
 
-	// Always fetch fresh unless dirty
-	if !o.Cache.IsDirty(cacheKey) {
+	// Use cache if data is fresh or dirty; only fetch when cache misses or expires
+	if data, ok := o.Cache.Get(cacheKey); ok {
+		// Cache hit (within TTL or dirty) — use cached data
+		_ = data
+	} else {
+		// Cache miss or expired — fetch from remote
 		var data []byte
 		var err error
 		if info.doc != nil {
@@ -458,14 +530,9 @@ func (o *OverleafFS) openFileForRead(info *pathInfo) (gowebdav.File, error) {
 			data, err = o.Client.DownloadFile(info.project.ID, info.fileRef.ID)
 		}
 		if err != nil {
-			if cached, ok := o.Cache.Get(cacheKey); ok {
-				data = cached
-			} else {
-				return nil, err
-			}
-		} else {
-			o.Cache.Set(cacheKey, data)
+			return nil, err
 		}
+		o.Cache.Set(cacheKey, data)
 	}
 
 	data, _ := o.Cache.Get(cacheKey)
@@ -755,7 +822,7 @@ func (o *OverleafFS) Stat(ctx context.Context, name string) (os.FileInfo, error)
 		return o.statTempFile(name)
 	}
 
-	info, err := o.resolve(name)
+	info, err := o.resolveWithCache(name)
 	if err != nil {
 		return nil, err
 	}
