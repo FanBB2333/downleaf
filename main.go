@@ -6,6 +6,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/mac"
 
 	"github.com/FanBB2333/downleaf/internal/gui"
 )
@@ -18,11 +19,12 @@ func main() {
 
 	err := wails.Run(&options.App{
 		Title:            "Downleaf",
-		Width:            860,
-		Height:           620,
-		MinWidth:         640,
+		Width:            900,
+		Height:           640,
+		MinWidth:         700,
 		MinHeight:        480,
-		BackgroundColour: &options.RGBA{R: 250, G: 250, B: 250, A: 1},
+		Frameless:        false,
+		BackgroundColour: &options.RGBA{R: 247, G: 245, B: 243, A: 1},
 		OnStartup:        app.Startup,
 		OnShutdown:       app.Shutdown,
 		Bind: []interface{}{
@@ -30,6 +32,12 @@ func main() {
 		},
 		AssetServer: &assetserver.Options{
 			Assets: assets,
+		},
+		Mac: &mac.Options{
+			TitleBar: mac.TitleBarHiddenInset(),
+			Appearance: mac.NSAppearanceNameAqua,
+			WebviewIsTransparent: true,
+			WindowIsTranslucent:  true,
 		},
 	})
 	if err != nil {
