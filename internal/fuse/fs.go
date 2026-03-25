@@ -335,15 +335,26 @@ func (f *FileNode) Setattr(ctx context.Context, fh gofuse.FileHandle, in *fuse.S
 
 func (f *FileNode) Open(ctx context.Context, flags uint32) (gofuse.FileHandle, uint32, syscall.Errno) {
 	cacheKey := f.projectID + "/" + f.id
-	if _, ok := f.ofs.Cache.Get(cacheKey); !ok {
-		data, err := f.fetchContent()
-		if err != nil {
-			log.Printf("fetch %s: %v", f.name, err)
-			return nil, 0, syscall.EIO
-		}
-		f.ofs.Cache.Set(cacheKey, data)
+
+	// If file has local dirty modifications, keep using cached version
+	if f.ofs.Cache.IsDirty(cacheKey) {
+		return nil, fuse.FOPEN_KEEP_CACHE, 0
 	}
-	return nil, fuse.FOPEN_KEEP_CACHE, 0
+
+	// Always fetch latest from remote on open
+	data, err := f.fetchContent()
+	if err != nil {
+		log.Printf("fetch %s: %v", f.name, err)
+		// Fall back to cache if available
+		if _, ok := f.ofs.Cache.Get(cacheKey); ok {
+			return nil, fuse.FOPEN_KEEP_CACHE, 0
+		}
+		return nil, 0, syscall.EIO
+	}
+	f.ofs.Cache.Set(cacheKey, data)
+
+	// Don't set FOPEN_KEEP_CACHE — let kernel re-read fresh content
+	return nil, 0, 0
 }
 
 func (f *FileNode) Read(ctx context.Context, fh gofuse.FileHandle, dest []byte, off int64) (fuse.ReadResult, syscall.Errno) {
