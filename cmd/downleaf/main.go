@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/joho/godotenv"
@@ -73,9 +76,10 @@ func run() error {
 		}
 		return cmdCat(client, os.Args[2], os.Args[3])
 	case "mount":
-		mountpoint := filepath.Join(os.Getenv("HOME"), "overleaf")
+		mountpoint := filepath.Join(os.Getenv("HOME"), "downleaf")
 		projectFilter := ""
 		batchMode := false
+		interactive := false
 		for i := 2; i < len(os.Args); i++ {
 			switch os.Args[i] {
 			case "--project":
@@ -85,9 +89,18 @@ func run() error {
 				}
 			case "--batch":
 				batchMode = true
+			case "-i", "--interactive":
+				interactive = true
 			default:
 				mountpoint = os.Args[i]
 			}
+		}
+		if interactive && projectFilter == "" {
+			selected, err := selectProject(client)
+			if err != nil {
+				return err
+			}
+			projectFilter = selected
 		}
 		return cmdMount(client, mountpoint, projectFilter, batchMode)
 	case "download":
@@ -100,7 +113,7 @@ func run() error {
 		}
 		return cmdDownload(client, os.Args[2], dest)
 	case "umount", "unmount":
-		mountpoint := filepath.Join(os.Getenv("HOME"), "overleaf")
+		mountpoint := filepath.Join(os.Getenv("HOME"), "downleaf")
 		if len(os.Args) > 2 {
 			mountpoint = os.Args[2]
 		}
@@ -119,8 +132,9 @@ func printUsage() {
 	fmt.Println("  tree <project-id>                  Show project file tree")
 	fmt.Println("  cat <project-id> <doc-id>          Print document content")
 	fmt.Println("  download <project-id> [dest-dir]   Download project files locally")
-	fmt.Println("  mount [mountpoint] [--project <name|id>] [--batch]")
-	fmt.Println("                                     Mount filesystem (default: ~/overleaf)")
+	fmt.Println("  mount [mountpoint] [--project <name|id>] [--batch] [-i]")
+	fmt.Println("                                     Mount filesystem (default: ~/downleaf)")
+	fmt.Println("                                     -i: interactive project selection")
 	fmt.Println("  sync                               Push all local changes to Overleaf (batch mode)")
 	fmt.Println("  umount [mountpoint]                Unmount filesystem")
 }
@@ -253,6 +267,53 @@ func downloadFolder(client *api.Client, sio *api.SocketIOClient, projectID strin
 		}
 	}
 	return nil
+}
+
+func selectProject(client *api.Client) (string, error) {
+	projects, err := client.ListProjects()
+	if err != nil {
+		return "", err
+	}
+
+	// Filter out archived/trashed
+	var active []model.Project
+	for _, p := range projects {
+		if !p.Archived && !p.Trashed {
+			active = append(active, p)
+		}
+	}
+
+	if len(active) == 0 {
+		return "", fmt.Errorf("no active projects found")
+	}
+
+	fmt.Println()
+	fmt.Printf("Select a project to mount (%d projects):\n", len(active))
+	fmt.Println("  0) [all projects]")
+	for i, p := range active {
+		fmt.Printf("  %d) %s\n", i+1, p.Name)
+	}
+	fmt.Println()
+
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Print("Enter number (0 for all): ")
+		line, _ := reader.ReadString('\n')
+		line = strings.TrimSpace(line)
+
+		n, err := strconv.Atoi(line)
+		if err != nil || n < 0 || n > len(active) {
+			fmt.Println("Invalid selection, try again.")
+			continue
+		}
+
+		if n == 0 {
+			return "", nil // no filter = all projects
+		}
+		selected := active[n-1]
+		fmt.Printf("Selected: %s (%s)\n", selected.Name, selected.ID)
+		return selected.ID, nil
+	}
 }
 
 func cmdSync() error {
