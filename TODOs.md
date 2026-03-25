@@ -10,7 +10,7 @@
 
 ## Phase 0: 项目基础设施
 
-- [ ] 初始化 Go module (`go mod init github.com/l1ght/downleaf`)
+- [ ] 初始化 Go module (`go mod init github.com/FanBB2333/downleaf`)
 - [ ] 搭建项目目录结构：
   ```
   cmd/downleaf/        # CLI 入口
