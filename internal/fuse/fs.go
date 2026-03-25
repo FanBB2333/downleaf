@@ -20,10 +20,18 @@ import (
 	"github.com/FanBB2333/downleaf/internal/model"
 )
 
+// fileMeta stores the metadata needed to upload a dirty file back to Overleaf.
+type fileMeta struct {
+	projectID string
+	folderID  string
+	name      string
+}
+
 // OverleafFS holds shared state for the entire filesystem.
 type OverleafFS struct {
 	Client        *api.Client
 	Cache         *cache.Cache
+	BatchMode     bool   // if true, Flush is a no-op; use FlushAll to sync
 	projectFilter string // if set, only show projects matching this name or ID
 
 	projectsMu sync.RWMutex
@@ -32,6 +40,9 @@ type OverleafFS struct {
 	sioMu   sync.Mutex
 	sioConn map[string]*api.SocketIOClient
 	trees   map[string]*model.ProjectMeta
+
+	metaMu   sync.RWMutex
+	metaMap  map[string]fileMeta // cacheKey -> file metadata for upload
 }
 
 func NewOverleafFS(client *api.Client) *OverleafFS {
@@ -40,7 +51,21 @@ func NewOverleafFS(client *api.Client) *OverleafFS {
 		Cache:   cache.New(5 * time.Minute),
 		sioConn: make(map[string]*api.SocketIOClient),
 		trees:   make(map[string]*model.ProjectMeta),
+		metaMap: make(map[string]fileMeta),
 	}
+}
+
+func (o *OverleafFS) registerMeta(cacheKey, projectID, folderID, name string) {
+	o.metaMu.Lock()
+	o.metaMap[cacheKey] = fileMeta{projectID: projectID, folderID: folderID, name: name}
+	o.metaMu.Unlock()
+}
+
+func (o *OverleafFS) getMeta(cacheKey string) (fileMeta, bool) {
+	o.metaMu.RLock()
+	m, ok := o.metaMap[cacheKey]
+	o.metaMu.RUnlock()
+	return m, ok
 }
 
 func (o *OverleafFS) refreshProjects() ([]model.Project, error) {
@@ -392,12 +417,19 @@ func (f *FileNode) Write(ctx context.Context, fh gofuse.FileHandle, data []byte,
 	copy(existing[off:], data)
 
 	f.ofs.Cache.SetDirty(cacheKey, existing)
+	f.ofs.registerMeta(cacheKey, f.projectID, f.folderID, f.name)
 	return uint32(len(data)), 0
 }
 
 func (f *FileNode) Flush(ctx context.Context, fh gofuse.FileHandle) syscall.Errno {
 	cacheKey := f.projectID + "/" + f.id
 	if !f.ofs.Cache.IsDirty(cacheKey) {
+		return 0
+	}
+
+	// In batch mode, keep dirty — will be flushed by FlushAll
+	if f.ofs.BatchMode {
+		f.ofs.registerMeta(cacheKey, f.projectID, f.folderID, f.name)
 		return 0
 	}
 
@@ -408,7 +440,6 @@ func (f *FileNode) Flush(ctx context.Context, fh gofuse.FileHandle) syscall.Errn
 
 	log.Printf("flushing %s to Overleaf", f.name)
 
-	// Upload as file (works for both docs and binary files)
 	if err := f.ofs.Client.UploadFile(f.projectID, f.folderID, f.name, data); err != nil {
 		log.Printf("flush %s: %v", f.name, err)
 		return syscall.EIO
@@ -711,26 +742,29 @@ func isDocFile(name string) bool {
 }
 
 // FlushAll flushes all dirty cached files to Overleaf.
-func (o *OverleafFS) FlushAll() {
+// Returns the number of files flushed and the number of errors.
+func (o *OverleafFS) FlushAll() (flushed, errors int) {
 	for _, key := range o.Cache.DirtyKeys() {
 		data, ok := o.Cache.Get(key)
 		if !ok {
 			continue
 		}
-		// key format: projectID/entityID
-		parts := strings.SplitN(key, "/", 2)
-		if len(parts) != 2 {
+		meta, hasMeta := o.getMeta(key)
+		if !hasMeta {
+			log.Printf("flush-all: no metadata for %s, skipping", key)
+			errors++
 			continue
 		}
-		log.Printf("flushing dirty file: %s", key)
-		// We don't have the filename here, so upload with entity ID.
-		// In practice, file should have been flushed on close already.
-		if err := o.Client.UploadFile(parts[0], "", parts[1], data); err != nil {
-			log.Printf("flush-all %s: %v", key, err)
+		log.Printf("flushing %s (%s)", meta.name, key)
+		if err := o.Client.UploadFile(meta.projectID, meta.folderID, meta.name, data); err != nil {
+			log.Printf("flush-all %s: %v", meta.name, err)
+			errors++
 		} else {
 			o.Cache.ClearDirty(key)
+			flushed++
 		}
 	}
+	return
 }
 
 // DisconnectAll disconnects all Socket.IO connections.
@@ -749,15 +783,18 @@ type MountResult struct {
 	OFS    *OverleafFS
 }
 
+// PIDFile is the path where the mount process writes its PID for sync.
+const PIDFile = "/tmp/downleaf.pid"
+
 // Mount mounts the Overleaf filesystem at the given mountpoint.
-// If projectFilter is non-empty, only projects matching that name or ID are shown.
-func Mount(mountpoint string, client *api.Client, projectFilter string) (*MountResult, error) {
+func Mount(mountpoint string, client *api.Client, projectFilter string, batchMode bool) (*MountResult, error) {
 	if err := os.MkdirAll(mountpoint, 0755); err != nil {
 		return nil, fmt.Errorf("create mountpoint: %w", err)
 	}
 
 	ofs := NewOverleafFS(client)
 	ofs.projectFilter = projectFilter
+	ofs.BatchMode = batchMode
 	root := &RootNode{ofs: ofs}
 
 	server, err := gofuse.Mount(mountpoint, root, &gofuse.Options{

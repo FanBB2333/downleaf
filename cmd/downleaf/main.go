@@ -44,6 +44,11 @@ func run() error {
 		return nil
 	}
 
+	// Commands that don't need authentication
+	if cmd == "sync" {
+		return cmdSync()
+	}
+
 	// Authenticate
 	fmt.Printf("Authenticating with %s ...\n", siteURL)
 	identity, err := auth.LoginWithCookies(siteURL, cookies)
@@ -70,15 +75,21 @@ func run() error {
 	case "mount":
 		mountpoint := filepath.Join(os.Getenv("HOME"), "overleaf")
 		projectFilter := ""
+		batchMode := false
 		for i := 2; i < len(os.Args); i++ {
-			if os.Args[i] == "--project" && i+1 < len(os.Args) {
-				projectFilter = os.Args[i+1]
-				i++
-			} else {
+			switch os.Args[i] {
+			case "--project":
+				if i+1 < len(os.Args) {
+					projectFilter = os.Args[i+1]
+					i++
+				}
+			case "--batch":
+				batchMode = true
+			default:
 				mountpoint = os.Args[i]
 			}
 		}
-		return cmdMount(client, mountpoint, projectFilter)
+		return cmdMount(client, mountpoint, projectFilter, batchMode)
 	case "download":
 		if len(os.Args) < 3 {
 			return fmt.Errorf("usage: downleaf download <project-id> [dest-dir]")
@@ -108,8 +119,9 @@ func printUsage() {
 	fmt.Println("  tree <project-id>                  Show project file tree")
 	fmt.Println("  cat <project-id> <doc-id>          Print document content")
 	fmt.Println("  download <project-id> [dest-dir]   Download project files locally")
-	fmt.Println("  mount [mountpoint] [--project <name|id>]")
+	fmt.Println("  mount [mountpoint] [--project <name|id>] [--batch]")
 	fmt.Println("                                     Mount filesystem (default: ~/overleaf)")
+	fmt.Println("  sync                               Push all local changes to Overleaf (batch mode)")
 	fmt.Println("  umount [mountpoint]                Unmount filesystem")
 }
 
@@ -243,16 +255,59 @@ func downloadFolder(client *api.Client, sio *api.SocketIOClient, projectID strin
 	return nil
 }
 
-func cmdMount(client *api.Client, mountpoint, projectFilter string) error {
+func cmdSync() error {
+	pidData, err := os.ReadFile(downfuse.PIDFile)
+	if err != nil {
+		return fmt.Errorf("no running mount found (cannot read %s): %w", downfuse.PIDFile, err)
+	}
+
+	var pid int
+	if _, err := fmt.Sscanf(string(pidData), "%d", &pid); err != nil {
+		return fmt.Errorf("invalid PID file: %w", err)
+	}
+
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return fmt.Errorf("process %d not found: %w", pid, err)
+	}
+
+	fmt.Printf("Sending sync signal to mount process (PID %d)...\n", pid)
+	if err := proc.Signal(syscall.SIGUSR1); err != nil {
+		return fmt.Errorf("failed to signal process: %w", err)
+	}
+
+	fmt.Println("Sync triggered. Check mount process output for details.")
+	return nil
+}
+
+func cmdMount(client *api.Client, mountpoint, projectFilter string, batchMode bool) error {
 	fmt.Printf("Mounting at %s ...\n", mountpoint)
 	if projectFilter != "" {
 		fmt.Printf("Filtering to project: %s\n", projectFilter)
 	}
+	if batchMode {
+		fmt.Println("Batch mode: writes are cached locally. Use 'downleaf sync' to push to Overleaf.")
+	}
 
-	result, err := downfuse.Mount(mountpoint, client, projectFilter)
+	result, err := downfuse.Mount(mountpoint, client, projectFilter, batchMode)
 	if err != nil {
 		return err
 	}
+
+	// Write PID file for sync command
+	os.WriteFile(downfuse.PIDFile, fmt.Appendf(nil, "%d", os.Getpid()), 0644)
+	defer os.Remove(downfuse.PIDFile)
+
+	// Handle SIGUSR1 for batch sync
+	syncCh := make(chan os.Signal, 1)
+	signal.Notify(syncCh, syscall.SIGUSR1)
+	go func() {
+		for range syncCh {
+			fmt.Println("\nSync requested — flushing dirty files...")
+			flushed, errors := result.OFS.FlushAll()
+			fmt.Printf("Sync complete: %d flushed, %d errors\n", flushed, errors)
+		}
+	}()
 
 	// Handle Ctrl+C for clean unmount with dirty flush
 	sigCh := make(chan os.Signal, 1)
@@ -265,6 +320,7 @@ func cmdMount(client *api.Client, mountpoint, projectFilter string) error {
 		result.OFS.DisconnectAll()
 		fmt.Println("Unmounting...")
 		downfuse.Unmount(mountpoint)
+		os.Remove(downfuse.PIDFile)
 		os.Exit(0)
 	}()
 
