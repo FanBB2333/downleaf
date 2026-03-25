@@ -18,6 +18,11 @@ import (
 	dav "github.com/FanBB2333/downleaf/internal/webdav"
 )
 
+// Version can be overridden at build time via:
+//
+//	go build -ldflags "-X main.Version=v0.1.0"
+var Version = "v0.1.0"
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -40,6 +45,11 @@ func run() error {
 	cmd := "ls"
 	if len(os.Args) > 1 {
 		cmd = os.Args[1]
+	}
+
+	if cmd == "version" || cmd == "--version" || cmd == "-v" {
+		fmt.Printf("downleaf %s\n", Version)
+		return nil
 	}
 
 	if cmd == "help" || cmd == "--help" || cmd == "-h" {
@@ -132,6 +142,8 @@ func run() error {
 }
 
 func printUsage() {
+	fmt.Printf("downleaf %s\n", Version)
+	fmt.Println()
 	fmt.Println("Usage: downleaf <command> [args]")
 	fmt.Println()
 	fmt.Println("Commands:")
@@ -144,6 +156,7 @@ func printUsage() {
 	fmt.Println("                                     -i: interactive project selection")
 	fmt.Println("  sync                               Push all local changes to Overleaf (batch mode)")
 	fmt.Println("  umount [mountpoint]                Unmount filesystem")
+	fmt.Println("  version                            Print version")
 }
 
 func cmdLS(client *api.Client) error {
