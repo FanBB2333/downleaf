@@ -231,14 +231,16 @@ func (c *Client) GetProjectDetail(projectID string) (*model.ProjectDetail, error
 		c.Identity.CSRFToken = m[1]
 	}
 
-	// Extract project JSON from meta tag
+	// Extract project JSON from meta tag (optional — may not exist in newer Overleaf)
 	if m := projectMetaRe.FindStringSubmatch(html); len(m) > 1 {
 		projectJSON := htmlUnescape(m[1])
 		if err := json.Unmarshal([]byte(projectJSON), &detail.Project); err != nil {
 			return nil, fmt.Errorf("parse project JSON: %w", err)
 		}
-	} else {
-		return nil, fmt.Errorf("could not find project metadata in editor page")
+	}
+
+	if detail.CSRFToken == "" {
+		return nil, fmt.Errorf("could not extract CSRF token from editor page")
 	}
 
 	return detail, nil
@@ -252,6 +254,18 @@ func (c *Client) UploadFile(projectID, folderID, fileName string, content []byte
 	if err := writer.WriteField("_csrf", c.Identity.CSRFToken); err != nil {
 		return err
 	}
+	if err := writer.WriteField("name", fileName); err != nil {
+		return err
+	}
+	if err := writer.WriteField("targetFolderId", folderID); err != nil {
+		return err
+	}
+	if err := writer.WriteField("qqfilename", fileName); err != nil {
+		return err
+	}
+	if err := writer.WriteField("qqtotalfilesize", fmt.Sprintf("%d", len(content))); err != nil {
+		return err
+	}
 
 	part, err := writer.CreateFormFile("qqfile", fileName)
 	if err != nil {
@@ -260,13 +274,17 @@ func (c *Client) UploadFile(projectID, folderID, fileName string, content []byte
 	if _, err := part.Write(content); err != nil {
 		return err
 	}
-	writer.Close()
+	if err := writer.Close(); err != nil {
+		return err
+	}
 
 	req, err := c.request("POST", "/project/"+projectID+"/upload?folder_id="+folderID, &buf)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("X-Csrf-Token", c.Identity.CSRFToken)
+	req.Header.Set("Referer", c.SiteURL+"/project/"+projectID)
 
 	return c.doJSON(req, nil)
 }

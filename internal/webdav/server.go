@@ -108,6 +108,10 @@ func (o *OverleafFS) getProjectTree(projectID string) (*model.ProjectMeta, error
 	if tree, ok := o.trees[projectID]; ok {
 		return tree, nil
 	}
+	// Fetch project editor page to get fresh CSRF token for this project
+	if _, err := o.Client.GetProjectDetail(projectID); err != nil {
+		log.Printf("warning: could not refresh CSRF token for project %s: %v", projectID, err)
+	}
 	sio := api.NewSocketIOClient(o.Client.SiteURL, o.Client.Identity)
 	tree, err := sio.JoinProject(projectID)
 	if err != nil {
@@ -512,6 +516,40 @@ func (o *OverleafFS) openFileForWrite(info *pathInfo, truncate bool) (gowebdav.F
 	}, nil
 }
 
+func (o *OverleafFS) statTempFile(name string) (os.FileInfo, error) {
+	parts := strings.Split(strings.TrimPrefix(path.Clean(name), "/"), "/")
+	if len(parts) < 2 {
+		return nil, os.ErrNotExist
+	}
+	project, ok := o.findProjectByName(parts[0])
+	if !ok {
+		return nil, os.ErrNotExist
+	}
+	base := path.Base(name)
+	cacheKey := project.ID + "/tmp-" + base
+	data, ok := o.Cache.Get(cacheKey)
+	if !ok {
+		return nil, os.ErrNotExist
+	}
+	return &fileInfo{name: base, size: int64(len(data)), modTime: time.Now()}, nil
+}
+
+// isTempFile returns true for editor temp files (atomic save pattern).
+func isTempFile(name string) bool {
+	// Patterns: file.ext.tmp.PID.TIMESTAMP, .file.swp, file~, #file#
+	base := path.Base(name)
+	if strings.Contains(base, ".tmp.") {
+		return true
+	}
+	if strings.HasSuffix(base, "~") || strings.HasSuffix(base, ".swp") || strings.HasSuffix(base, ".swx") {
+		return true
+	}
+	if strings.HasPrefix(base, "#") && strings.HasSuffix(base, "#") {
+		return true
+	}
+	return false
+}
+
 func (o *OverleafFS) createFile(name string) (gowebdav.File, error) {
 	dir := path.Dir(name)
 	base := path.Base(name)
@@ -522,6 +560,25 @@ func (o *OverleafFS) createFile(name string) (gowebdav.File, error) {
 	}
 	if !parent.isDir() || parent.isRoot {
 		return nil, os.ErrPermission
+	}
+
+	// Temp files from editors: keep in memory only, never upload to Overleaf
+	if isTempFile(name) {
+		tmpID := "tmp-" + base
+		cacheKey := parent.project.ID + "/" + tmpID
+		o.Cache.Set(cacheKey, []byte{})
+		return &regularFile{
+			ofs:       o,
+			info:      &fileInfo{name: base, modTime: time.Now()},
+			projectID: parent.project.ID,
+			folderID:  parent.folder.ID,
+			entityID:  tmpID,
+			name:      base,
+			isDoc:     false,
+			content:   []byte{},
+			writable:  true,
+			tempFile:  true,
+		}, nil
 	}
 
 	isDoc := isDocFile(base)
@@ -595,6 +652,12 @@ func (o *OverleafFS) Rename(ctx context.Context, oldName, newName string) error 
 	oldName = path.Clean(oldName)
 	newName = path.Clean(newName)
 
+	// Handle temp file → real file rename (atomic save pattern).
+	// Copy temp file content to the real file's cache entry as dirty.
+	if isTempFile(oldName) && !isTempFile(newName) {
+		return o.renameTempToReal(oldName, newName)
+	}
+
 	info, err := o.resolve(oldName)
 	if err != nil {
 		return err
@@ -633,7 +696,65 @@ func (o *OverleafFS) Rename(ctx context.Context, oldName, newName string) error 
 	return nil
 }
 
+// renameTempToReal handles the editor atomic save: tmp file → real file.
+// It copies the temp content into the real file's cache as dirty.
+func (o *OverleafFS) renameTempToReal(oldName, newName string) error {
+	newName = path.Clean(newName)
+
+	// Resolve the target to get project/entity info
+	target, err := o.resolve(newName)
+	if err != nil {
+		return err
+	}
+
+	// Read temp file content from cache
+	parts := strings.Split(strings.TrimPrefix(path.Clean(oldName), "/"), "/")
+	if len(parts) < 2 {
+		return os.ErrInvalid
+	}
+	project, ok := o.findProjectByName(parts[0])
+	if !ok {
+		return os.ErrNotExist
+	}
+	tmpBase := path.Base(oldName)
+	tmpCacheKey := project.ID + "/tmp-" + tmpBase
+	data, ok := o.Cache.Get(tmpCacheKey)
+	if !ok {
+		return os.ErrNotExist
+	}
+
+	// Write content to the real file's cache as dirty
+	realCacheKey := target.project.ID + "/" + target.entityID()
+	o.Cache.SetDirty(realCacheKey, data)
+
+	folderID := ""
+	if target.parentFolder != nil {
+		folderID = target.parentFolder.ID
+	}
+	o.registerMeta(realCacheKey, target.project.ID, folderID, target.entityName())
+
+	// Clean up temp cache entry
+	o.Cache.Delete(tmpCacheKey)
+
+	// In non-batch mode, upload immediately
+	if !o.BatchMode {
+		log.Printf("uploading %s to Overleaf", target.entityName())
+		if err := o.Client.UploadFile(target.project.ID, folderID, target.entityName(), data); err != nil {
+			log.Printf("upload %s: %v", target.entityName(), err)
+			return err
+		}
+		o.Cache.ClearDirty(realCacheKey)
+	}
+
+	return nil
+}
+
 func (o *OverleafFS) Stat(ctx context.Context, name string) (os.FileInfo, error) {
+	// Temp files: check cache directly
+	if isTempFile(name) {
+		return o.statTempFile(name)
+	}
+
 	info, err := o.resolve(name)
 	if err != nil {
 		return nil, err
@@ -741,6 +862,7 @@ type regularFile struct {
 	readPos   int64
 	writable  bool
 	dirty     bool
+	tempFile  bool
 }
 
 func (f *regularFile) Stat() (fs.FileInfo, error)               { return f.info, nil }
@@ -790,6 +912,13 @@ func (f *regularFile) Close() error {
 	}
 
 	cacheKey := f.projectID + "/" + f.entityID
+
+	// Temp files: cache content only (for rename), don't upload or mark dirty
+	if f.tempFile {
+		f.ofs.Cache.Set(cacheKey, f.content)
+		return nil
+	}
+
 	f.ofs.Cache.SetDirty(cacheKey, f.content)
 	f.ofs.registerMeta(cacheKey, f.projectID, f.folderID, f.name)
 
@@ -876,6 +1005,21 @@ func findFileRefIDInFolder(folder *model.Folder, name string) string {
 // PIDFile is the path where the serving process writes its PID for sync.
 const PIDFile = "/tmp/downleaf.pid"
 
+// isNoiseRequest returns true for metadata files that editors/OS probe for
+// and that will never exist on Overleaf. These are silently ignored in logs.
+func isNoiseRequest(path string) bool {
+	base := filepath.Base(path)
+	switch {
+	case strings.HasPrefix(base, "."):
+		return true // .git, .DS_Store, .claude, .hidden, .Spotlight-V100, etc.
+	case base == "package.json" || base == "node_modules":
+		return true
+	case strings.HasPrefix(base, "._"):
+		return true // macOS resource forks
+	}
+	return false
+}
+
 // Serve starts the WebDAV server on the given address.
 func Serve(addr string, ofs *OverleafFS) error {
 	handler := &gowebdav.Handler{
@@ -883,6 +1027,9 @@ func Serve(addr string, ofs *OverleafFS) error {
 		LockSystem: gowebdav.NewMemLS(),
 		Logger: func(r *http.Request, err error) {
 			if err != nil {
+				if os.IsNotExist(err) && isNoiseRequest(r.URL.Path) {
+					return
+				}
 				log.Printf("WebDAV %s %s: %v", r.Method, r.URL.Path, err)
 			}
 		},
