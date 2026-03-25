@@ -1,0 +1,173 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Morandi palette: muted, low-saturation, warm neutral tones.
+ */
+
+@theme inline {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
+  --font-mono: "SF Mono", "Fira Code", "Cascadia Code", ui-monospace, monospace;
+
+  /* Morandi scale */
+  --color-morandi-50: #f7f5f3;
+  --color-morandi-100: #eeebe7;
+  --color-morandi-200: #ddd8d1;
+  --color-morandi-300: #c5bdb4;
+  --color-morandi-400: #a89e93;
+  --color-morandi-500: #8f8378;
+  --color-morandi-600: #776b60;
+  --color-morandi-700: #5e544b;
+  --color-morandi-800: #48403a;
+  --color-morandi-900: #352f2a;
+  --color-morandi-950: #201d1a;
+
+  /* Morandi accent colors */
+  --color-sage: #a8b5a0;
+  --color-sage-soft: #d4ddd0;
+  --color-dusty-rose: #c4a4a0;
+  --color-dusty-rose-soft: #e0ccc9;
+  --color-slate-blue: #8e9aab;
+  --color-slate-blue-soft: #bcc5d0;
+  --color-lavender: #b0a4b8;
+  --color-lavender-soft: #d5ceda;
+
+  /* Semantic color tokens mapped from CSS vars */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+}
+
+/* ---- Light mode (default) ---- */
+:root {
+  --radius: 0.625rem;
+  --background: #f7f5f3;
+  --foreground: #352f2a;
+  --card: #ffffff;
+  --card-foreground: #352f2a;
+  --popover: #ffffff;
+  --popover-foreground: #352f2a;
+  --primary: #5e544b;
+  --primary-foreground: #f7f5f3;
+  --secondary: #eeebe7;
+  --secondary-foreground: #5e544b;
+  --muted: #eeebe7;
+  --muted-foreground: #8f8378;
+  --accent: #eeebe7;
+  --accent-foreground: #5e544b;
+  --destructive: #b87070;
+  --destructive-foreground: #f7f5f3;
+  --border: #ddd8d1;
+  --input: #ddd8d1;
+  --ring: #a89e93;
+  --sidebar: #eeebe7;
+  --sidebar-foreground: #352f2a;
+  --sidebar-primary: #5e544b;
+  --sidebar-primary-foreground: #f7f5f3;
+  --sidebar-accent: #ddd8d1;
+  --sidebar-accent-foreground: #5e544b;
+  --sidebar-border: #ddd8d1;
+  --sidebar-ring: #a89e93;
+}
+
+/* ---- Dark mode ---- */
+.dark {
+  --background: #201d1a;
+  --foreground: #ddd8d1;
+  --card: #352f2a;
+  --card-foreground: #ddd8d1;
+  --popover: #352f2a;
+  --popover-foreground: #ddd8d1;
+  --primary: #c5bdb4;
+  --primary-foreground: #201d1a;
+  --secondary: #48403a;
+  --secondary-foreground: #c5bdb4;
+  --muted: #48403a;
+  --muted-foreground: #8f8378;
+  --accent: #48403a;
+  --accent-foreground: #c5bdb4;
+  --destructive: #c48080;
+  --destructive-foreground: #201d1a;
+  --border: #48403a;
+  --input: #48403a;
+  --ring: #776b60;
+  --sidebar: #352f2a;
+  --sidebar-foreground: #ddd8d1;
+  --sidebar-primary: #c5bdb4;
+  --sidebar-primary-foreground: #201d1a;
+  --sidebar-accent: #48403a;
+  --sidebar-accent-foreground: #c5bdb4;
+  --sidebar-border: #48403a;
+  --sidebar-ring: #776b60;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+    overflow: hidden;
+    height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  html {
+    @apply font-sans;
+  }
+  #root {
+    height: 100vh;
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-morandi-300);
+  border-radius: 3px;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: var(--color-morandi-700);
+}
+
+/* Wails window drag region */
+[data-wails-drag] {
+  --wails-draggable: drag;
+}

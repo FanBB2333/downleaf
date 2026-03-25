@@ -1,90 +1,12 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Downleaf</title>
-  <link rel="stylesheet" href="/src/style.css">
-</head>
-<body>
-  <div id="app">
-    <!-- Header -->
-    <header id="header">
-      <div class="header-left">
-        <span class="logo">Downleaf</span>
-        <span class="version">v0.1.0</span>
-      </div>
-      <div class="header-right" id="header-status"></div>
-    </header>
-
-    <!-- Login Panel -->
-    <section id="login-panel" class="panel">
-      <h2>Connect to Overleaf</h2>
-      <div class="form-group">
-        <label for="site-url">Site URL</label>
-        <input type="text" id="site-url" placeholder="https://overleaf.example.com">
-      </div>
-      <div class="form-group">
-        <label for="cookies">Session Cookie</label>
-        <textarea id="cookies" rows="3" placeholder="overleaf_session2=s%3A..."></textarea>
-      </div>
-      <button id="login-btn" class="btn btn-primary" onclick="doLogin()">Connect</button>
-      <div id="login-error" class="error-msg"></div>
-    </section>
-
-    <!-- Main Panel (shown after login) -->
-    <section id="main-panel" class="panel" style="display:none">
-      <!-- Mount Controls -->
-      <div class="card" id="mount-card">
-        <h3>Mount</h3>
-        <div class="mount-controls">
-          <div class="form-row">
-            <div class="form-group flex-1">
-              <label for="project-select">Project</label>
-              <select id="project-select">
-                <option value="">All Projects</option>
-              </select>
-            </div>
-            <div class="form-group flex-1">
-              <label for="mountpoint">Mountpoint</label>
-              <input type="text" id="mountpoint" value="">
-            </div>
-          </div>
-          <div class="form-row">
-            <label class="checkbox-label">
-              <input type="checkbox" id="batch-mode"> Batch mode (manual sync)
-            </label>
-          </div>
-          <div class="btn-row">
-            <button id="mount-btn" class="btn btn-primary" onclick="doMount()">Mount</button>
-            <button id="unmount-btn" class="btn btn-danger" onclick="doUnmount()" style="display:none">Unmount</button>
-            <button id="sync-btn" class="btn btn-secondary" onclick="doSync()" style="display:none">Sync</button>
-            <button id="open-btn" class="btn btn-secondary" onclick="doOpen()" style="display:none">Open in Finder</button>
-          </div>
-        </div>
-        <div id="mount-status" class="status-bar"></div>
-      </div>
-
-      <!-- Project List -->
-      <div class="card" id="project-card">
-        <div class="card-header">
-          <h3>Projects</h3>
-          <button class="btn btn-small" onclick="refreshProjects()">Refresh</button>
-        </div>
-        <div id="project-list" class="project-list"></div>
-      </div>
-    </section>
-
-    <!-- Log Panel -->
-    <section id="log-panel" class="panel">
-      <div class="card-header">
-        <h3>Logs</h3>
-        <button class="btn btn-small" onclick="clearLogs()">Clear</button>
-      </div>
-      <pre id="log-output"></pre>
-    </section>
-  </div>
-
-  <script src="/src/main.js"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Downleaf</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>
