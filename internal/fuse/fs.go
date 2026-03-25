@@ -22,8 +22,9 @@ import (
 
 // OverleafFS holds shared state for the entire filesystem.
 type OverleafFS struct {
-	Client *api.Client
-	Cache  *cache.Cache
+	Client        *api.Client
+	Cache         *cache.Cache
+	projectFilter string // if set, only show projects matching this name or ID
 
 	projectsMu sync.RWMutex
 	projects   []model.Project
@@ -51,6 +52,13 @@ func (o *OverleafFS) refreshProjects() ([]model.Project, error) {
 	}
 	o.projects = projects
 	return projects, nil
+}
+
+func (o *OverleafFS) matchesFilter(p model.Project) bool {
+	if o.projectFilter == "" {
+		return true
+	}
+	return p.ID == o.projectFilter || strings.EqualFold(p.Name, o.projectFilter)
 }
 
 func (o *OverleafFS) getProjectTree(projectID string) (*model.ProjectMeta, error) {
@@ -114,6 +122,9 @@ func (r *RootNode) Readdir(ctx context.Context) (gofuse.DirStream, syscall.Errno
 		if p.Archived || p.Trashed {
 			continue
 		}
+		if !r.ofs.matchesFilter(p) {
+			continue
+		}
 		entries = append(entries, fuse.DirEntry{
 			Name: sanitizeName(p.Name),
 			Mode: syscall.S_IFDIR,
@@ -127,7 +138,7 @@ func (r *RootNode) Lookup(ctx context.Context, name string, out *fuse.EntryOut) 
 	projects := r.ofs.projects
 	r.ofs.projectsMu.RUnlock()
 	for _, p := range projects {
-		if sanitizeName(p.Name) == name && !p.Archived && !p.Trashed {
+		if sanitizeName(p.Name) == name && !p.Archived && !p.Trashed && r.ofs.matchesFilter(p) {
 			node := &ProjectNode{ofs: r.ofs, project: p}
 			out.Mode = syscall.S_IFDIR | 0755
 			child := r.NewInode(ctx, node, gofuse.StableAttr{Mode: syscall.S_IFDIR})
@@ -688,13 +699,54 @@ func isDocFile(name string) bool {
 	return false
 }
 
+// FlushAll flushes all dirty cached files to Overleaf.
+func (o *OverleafFS) FlushAll() {
+	for _, key := range o.Cache.DirtyKeys() {
+		data, ok := o.Cache.Get(key)
+		if !ok {
+			continue
+		}
+		// key format: projectID/entityID
+		parts := strings.SplitN(key, "/", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		log.Printf("flushing dirty file: %s", key)
+		// We don't have the filename here, so upload with entity ID.
+		// In practice, file should have been flushed on close already.
+		if err := o.Client.UploadFile(parts[0], "", parts[1], data); err != nil {
+			log.Printf("flush-all %s: %v", key, err)
+		} else {
+			o.Cache.ClearDirty(key)
+		}
+	}
+}
+
+// DisconnectAll disconnects all Socket.IO connections.
+func (o *OverleafFS) DisconnectAll() {
+	o.sioMu.Lock()
+	defer o.sioMu.Unlock()
+	for id, sio := range o.sioConn {
+		sio.Disconnect()
+		delete(o.sioConn, id)
+	}
+}
+
+// MountResult holds the FUSE server and filesystem state for clean shutdown.
+type MountResult struct {
+	Server *fuse.Server
+	OFS    *OverleafFS
+}
+
 // Mount mounts the Overleaf filesystem at the given mountpoint.
-func Mount(mountpoint string, client *api.Client) error {
+// If projectFilter is non-empty, only projects matching that name or ID are shown.
+func Mount(mountpoint string, client *api.Client, projectFilter string) (*MountResult, error) {
 	if err := os.MkdirAll(mountpoint, 0755); err != nil {
-		return fmt.Errorf("create mountpoint: %w", err)
+		return nil, fmt.Errorf("create mountpoint: %w", err)
 	}
 
 	ofs := NewOverleafFS(client)
+	ofs.projectFilter = projectFilter
 	root := &RootNode{ofs: ofs}
 
 	server, err := gofuse.Mount(mountpoint, root, &gofuse.Options{
@@ -703,17 +755,23 @@ func Mount(mountpoint string, client *api.Client) error {
 			Name:   "overleaf",
 		},
 		FirstAutomaticIno: 1,
+		EntryTimeout:      &entryTimeout,
+		AttrTimeout:       &attrTimeout,
 	})
 	if err != nil {
-		return fmt.Errorf("mount: %w", err)
+		return nil, fmt.Errorf("mount: %w", err)
 	}
 
 	log.Printf("Mounted at %s", mountpoint)
 	log.Printf("Use 'umount %s' or press Ctrl+C to unmount", mountpoint)
 
-	server.Wait()
-	return nil
+	return &MountResult{Server: server, OFS: ofs}, nil
 }
+
+var (
+	entryTimeout = 5 * time.Second
+	attrTimeout  = 5 * time.Second
+)
 
 // Unmount unmounts the filesystem using the system umount command.
 func Unmount(mountpoint string) error {
