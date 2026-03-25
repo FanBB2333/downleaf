@@ -11,10 +11,11 @@ import (
 	"syscall"
 
 	"github.com/joho/godotenv"
+
 	"github.com/FanBB2333/downleaf/internal/api"
 	"github.com/FanBB2333/downleaf/internal/auth"
-	downfuse "github.com/FanBB2333/downleaf/internal/fuse"
 	"github.com/FanBB2333/downleaf/internal/model"
+	dav "github.com/FanBB2333/downleaf/internal/webdav"
 )
 
 func main() {
@@ -36,7 +37,6 @@ func run() error {
 		return fmt.Errorf("SITE and COOKIES must be set in .env or environment")
 	}
 
-	// Parse subcommand
 	cmd := "ls"
 	if len(os.Args) > 1 {
 		cmd = os.Args[1]
@@ -47,9 +47,16 @@ func run() error {
 		return nil
 	}
 
-	// Commands that don't need authentication
 	if cmd == "sync" {
 		return cmdSync()
+	}
+
+	if cmd == "umount" || cmd == "unmount" {
+		mountpoint := filepath.Join(os.Getenv("HOME"), "downleaf")
+		if len(os.Args) > 2 {
+			mountpoint = os.Args[2]
+		}
+		return dav.Unmount(mountpoint)
 	}
 
 	// Authenticate
@@ -77,6 +84,7 @@ func run() error {
 		return cmdCat(client, os.Args[2], os.Args[3])
 	case "mount":
 		mountpoint := filepath.Join(os.Getenv("HOME"), "downleaf")
+		addr := "localhost:9090"
 		projectFilter := ""
 		batchMode := false
 		interactive := false
@@ -85,6 +93,11 @@ func run() error {
 			case "--project":
 				if i+1 < len(os.Args) {
 					projectFilter = os.Args[i+1]
+					i++
+				}
+			case "--port":
+				if i+1 < len(os.Args) {
+					addr = "localhost:" + os.Args[i+1]
 					i++
 				}
 			case "--batch":
@@ -102,7 +115,7 @@ func run() error {
 			}
 			projectFilter = selected
 		}
-		return cmdMount(client, mountpoint, projectFilter, batchMode)
+		return cmdMount(client, addr, mountpoint, projectFilter, batchMode)
 	case "download":
 		if len(os.Args) < 3 {
 			return fmt.Errorf("usage: downleaf download <project-id> [dest-dir]")
@@ -112,12 +125,6 @@ func run() error {
 			dest = os.Args[3]
 		}
 		return cmdDownload(client, os.Args[2], dest)
-	case "umount", "unmount":
-		mountpoint := filepath.Join(os.Getenv("HOME"), "downleaf")
-		if len(os.Args) > 2 {
-			mountpoint = os.Args[2]
-		}
-		return downfuse.Unmount(mountpoint)
 	default:
 		printUsage()
 		return nil
@@ -132,8 +139,8 @@ func printUsage() {
 	fmt.Println("  tree <project-id>                  Show project file tree")
 	fmt.Println("  cat <project-id> <doc-id>          Print document content")
 	fmt.Println("  download <project-id> [dest-dir]   Download project files locally")
-	fmt.Println("  mount [mountpoint] [--project <name|id>] [--batch] [-i]")
-	fmt.Println("                                     Mount filesystem (default: ~/downleaf)")
+	fmt.Println("  mount [mountpoint] [--project <name|id>] [--batch] [-i] [--port PORT]")
+	fmt.Println("                                     Start WebDAV server and mount (default: ~/downleaf, port 9090)")
 	fmt.Println("                                     -i: interactive project selection")
 	fmt.Println("  sync                               Push all local changes to Overleaf (batch mode)")
 	fmt.Println("  umount [mountpoint]                Unmount filesystem")
@@ -197,7 +204,6 @@ func cmdCat(client *api.Client, projectID, docID string) error {
 
 	content, version, err := sio.JoinDoc(projectID, docID)
 	if err != nil {
-		// If joinDoc fails, try downloading as binary file
 		fmt.Fprintf(os.Stderr, "note: joinDoc failed (%v), trying binary download\n", err)
 		data, dlErr := client.DownloadFile(projectID, docID)
 		if dlErr != nil {
@@ -241,11 +247,11 @@ func downloadFolder(client *api.Client, sio *api.SocketIOClient, projectID strin
 			continue
 		}
 		sio.LeaveDoc(projectID, doc.ID)
-		path := filepath.Join(dir, doc.Name)
-		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		p := filepath.Join(dir, doc.Name)
+		if err := os.WriteFile(p, []byte(content), 0644); err != nil {
 			return err
 		}
-		fmt.Printf("  %s\n", path)
+		fmt.Printf("  %s\n", p)
 	}
 
 	for _, ref := range folder.FileRefs {
@@ -254,11 +260,11 @@ func downloadFolder(client *api.Client, sio *api.SocketIOClient, projectID strin
 			fmt.Fprintf(os.Stderr, "  skip file %s: %v\n", ref.Name, err)
 			continue
 		}
-		path := filepath.Join(dir, ref.Name)
-		if err := os.WriteFile(path, data, 0644); err != nil {
+		p := filepath.Join(dir, ref.Name)
+		if err := os.WriteFile(p, data, 0644); err != nil {
 			return err
 		}
-		fmt.Printf("  %s\n", path)
+		fmt.Printf("  %s\n", p)
 	}
 
 	for _, sub := range folder.Folders {
@@ -275,7 +281,6 @@ func selectProject(client *api.Client) (string, error) {
 		return "", err
 	}
 
-	// Filter out archived/trashed
 	var active []model.Project
 	for _, p := range projects {
 		if !p.Archived && !p.Trashed {
@@ -308,7 +313,7 @@ func selectProject(client *api.Client) (string, error) {
 		}
 
 		if n == 0 {
-			return "", nil // no filter = all projects
+			return "", nil
 		}
 		selected := active[n-1]
 		fmt.Printf("Selected: %s (%s)\n", selected.Name, selected.ID)
@@ -317,9 +322,9 @@ func selectProject(client *api.Client) (string, error) {
 }
 
 func cmdSync() error {
-	pidData, err := os.ReadFile(downfuse.PIDFile)
+	pidData, err := os.ReadFile(dav.PIDFile)
 	if err != nil {
-		return fmt.Errorf("no running mount found (cannot read %s): %w", downfuse.PIDFile, err)
+		return fmt.Errorf("no running mount found (cannot read %s): %w", dav.PIDFile, err)
 	}
 
 	var pid int
@@ -341,23 +346,18 @@ func cmdSync() error {
 	return nil
 }
 
-func cmdMount(client *api.Client, mountpoint, projectFilter string, batchMode bool) error {
-	fmt.Printf("Mounting at %s ...\n", mountpoint)
-	if projectFilter != "" {
-		fmt.Printf("Filtering to project: %s\n", projectFilter)
-	}
+func cmdMount(client *api.Client, addr, mountpoint, projectFilter string, batchMode bool) error {
 	if batchMode {
 		fmt.Println("Batch mode: writes are cached locally. Use 'downleaf sync' to push to Overleaf.")
 	}
 
-	result, err := downfuse.Mount(mountpoint, client, projectFilter, batchMode)
-	if err != nil {
-		return err
-	}
+	ofs := dav.NewOverleafFS(client)
+	ofs.BatchMode = batchMode
+	ofs.ProjectFilter = projectFilter
 
 	// Write PID file for sync command
-	os.WriteFile(downfuse.PIDFile, fmt.Appendf(nil, "%d", os.Getpid()), 0644)
-	defer os.Remove(downfuse.PIDFile)
+	os.WriteFile(dav.PIDFile, fmt.Appendf(nil, "%d", os.Getpid()), 0644)
+	defer os.Remove(dav.PIDFile)
 
 	// Handle SIGUSR1 for batch sync
 	syncCh := make(chan os.Signal, 1)
@@ -365,26 +365,45 @@ func cmdMount(client *api.Client, mountpoint, projectFilter string, batchMode bo
 	go func() {
 		for range syncCh {
 			fmt.Println("\nSync requested — flushing dirty files...")
-			flushed, errors := result.OFS.FlushAll()
+			flushed, errors := ofs.FlushAll()
 			fmt.Printf("Sync complete: %d flushed, %d errors\n", flushed, errors)
 		}
 	}()
 
-	// Handle Ctrl+C for clean unmount with dirty flush
+	// Handle Ctrl+C
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
 	go func() {
 		<-sigCh
 		fmt.Println("\nFlushing dirty files...")
-		result.OFS.FlushAll()
-		result.OFS.DisconnectAll()
-		fmt.Println("Unmounting...")
-		downfuse.Unmount(mountpoint)
-		os.Remove(downfuse.PIDFile)
+		ofs.FlushAll()
+		ofs.DisconnectAll()
+		dav.Unmount(mountpoint)
+		os.Remove(dav.PIDFile)
 		os.Exit(0)
 	}()
 
-	result.Server.Wait()
-	return nil
+	// Start WebDAV server in background, then mount
+	go func() {
+		if err := dav.Serve(addr, ofs); err != nil {
+			fmt.Fprintf(os.Stderr, "WebDAV server error: %v\n", err)
+			os.Exit(1)
+		}
+	}()
+
+	fmt.Printf("WebDAV server: http://%s\n", addr)
+	fmt.Printf("Mounting at %s ...\n", mountpoint)
+
+	if err := dav.MountNative(addr, mountpoint); err != nil {
+		fmt.Printf("Auto-mount failed: %v\n", err)
+		fmt.Printf("You can mount manually:\n")
+		fmt.Printf("  macOS:  mount_webdav http://%s %s\n", addr, mountpoint)
+		fmt.Printf("  Linux:  sudo mount -t davfs http://%s %s\n", addr, mountpoint)
+		fmt.Printf("  Or open in Finder: Cmd+K → http://%s\n", addr)
+	} else {
+		fmt.Printf("Mounted at %s\n", mountpoint)
+	}
+
+	fmt.Println("Press Ctrl+C to stop.")
+	select {} // block forever
 }
