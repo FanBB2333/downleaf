@@ -1,39 +1,39 @@
-# 故障排查
+# Troubleshooting
 
-## 认证问题
+## Authentication Issues
 
 ### "SITE and COOKIES must be set"
 
-确保项目根目录有 `.env` 文件，且包含 `SITE` 和 `COOKIES` 变量。
+Make sure a `.env` file exists in the project root and contains both `SITE` and `COOKIES` variables.
 
 ### "authentication failed"
 
-Cookie 已过期。重新从浏览器复制：
-1. 登录 Overleaf
-2. 开发者工具 → Application → Cookies
-3. 复制 `overleaf_session2` 的值
-4. 更新 `.env` 文件
+The cookie has expired. Re-copy it from your browser:
+1. Log in to Overleaf
+2. DevTools → Application → Cookies
+3. Copy the value of `overleaf_session2`
+4. Update the `.env` file
 
-> Cookie 通常有效期约 7 天。
+> Cookies are typically valid for about 7 days.
 
-### 自部署 Overleaf 实例
+### Self-hosted Overleaf Instance
 
-将 `SITE` 设为你的实例地址：
+Set `SITE` to the URL of your instance:
 ```
 SITE=https://overleaf.example.com/
 ```
 
-## 挂载问题
+## Mount Issues
 
-### mount_webdav 失败
+### mount_webdav Failed
 
-如果自动挂载失败，可以手动挂载：
+If auto-mount fails, you can mount manually:
 
 ```bash
-# macOS - 通过 Finder
-# Cmd+K → 输入 http://localhost:9090
+# macOS - via Finder
+# Cmd+K → enter http://localhost:9090
 
-# macOS - 命令行
+# macOS - command line
 mkdir -p ~/downleaf
 mount_webdav http://localhost:9090 ~/downleaf
 
@@ -41,55 +41,55 @@ mount_webdav http://localhost:9090 ~/downleaf
 sudo mount -t davfs http://localhost:9090 ~/downleaf
 ```
 
-### 端口被占用
+### Port Already in Use
 
 ```bash
-# 使用其他端口
+# Use a different port
 downleaf mount --port 8080
 ```
 
 ### umount: "Resource busy"
 
-有进程仍在使用挂载目录：
+A process is still using the mount directory:
 
 ```bash
-# 查看占用进程
+# Find the process
 lsof +D ~/downleaf
 
-# 强制卸载（macOS）
+# Force unmount (macOS)
 diskutil unmount force ~/downleaf
 ```
 
-## 文件读写问题
+## File Read/Write Issues
 
-### 文件内容为空或大小显示为 0
+### File Content Is Empty or Size Shows 0
 
-首次列目录时文件大小可能显示为 0（未缓存），打开文件后会显示正确大小。这是正常行为。
+File sizes may show as 0 on the first directory listing (not yet cached). The correct size appears after opening the file. This is expected behavior.
 
-### 写入后 Overleaf 端未更新
+### Changes Not Reflected on Overleaf
 
-- **普通模式**: 检查 mount 终端的日志输出，看是否有 upload 错误
-- **Zen 模式**: 需要执行 `downleaf sync` 才会推送
-- 确认 CSRF token 未过期（长时间运行后可能失效，重启 mount 即可）
+- **Normal mode**: Check the mount terminal logs for upload errors
+- **Zen mode**: Run `downleaf sync` to push changes
+- The CSRF token may have expired after long-running mounts — restart the mount to refresh it
 
-### "no running mount found" (sync 命令)
+### "no running mount found" (sync command)
 
-mount 进程未运行，或 PID 文件 `/tmp/downleaf.pid` 不存在。确保 mount 进程在运行。
+The mount process is not running, or the PID file `/tmp/downleaf.pid` does not exist. Make sure the mount process is active.
 
-## 网络问题
+## Network Issues
 
-### 请求超时
+### Request Timeouts
 
-Overleaf 使用 Google Cloud Load Balancer，需要保持 GCLB cookie 的会话粘性。downleaf 会自动处理这个问题。如果反复超时，可能是网络不稳定，重启 mount 即可。
+Overleaf uses Google Cloud Load Balancer, which requires GCLB cookie session stickiness. Downleaf handles this automatically. If timeouts persist, the network may be unstable — restart the mount.
 
-### Socket.IO 连接失败
+### Socket.IO Connection Failed
 
-Socket.IO joinDoc 超时后会自动回退到 REST API 下载。如果某个文件始终无法读取，可能是该文件正在被其他用户编辑，或者存在权限问题。
+Socket.IO joinDoc automatically falls back to the REST API on timeout. If a file consistently fails to load, it may be locked by another user or there may be a permission issue.
 
-## 性能
+## Performance
 
-### 打开文件很慢
+### Opening Files Is Slow
 
-每次 open 都会从 Overleaf 拉取最新版本。对于大型项目，可以：
-1. 使用 `--project` 只挂载需要的项目
-2. 使用 `download` 命令先下载到本地，编辑完再手动上传
+Each open fetches the latest version from Overleaf. For large projects, you can:
+1. Use `--project` to mount only the project you need
+2. Use the `download` command to work locally, then upload manually when done

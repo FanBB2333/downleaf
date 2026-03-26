@@ -1,129 +1,129 @@
-# Downleaf 架构
+# Architecture
 
-## 整体结构
+## Project Structure
 
 ```
 downleaf
-├── cmd/downleaf/main.go        # CLI 入口，命令解析
+├── cmd/downleaf/main.go        # CLI entry point, command parsing
 ├── internal/
-│   ├── auth/auth.go            # Cookie 认证，CSRF token 提取
+│   ├── auth/auth.go            # Cookie authentication, CSRF token extraction
 │   ├── api/
-│   │   ├── client.go           # Overleaf REST API 客户端
-│   │   └── socketio.go         # Socket.IO v0 客户端（xhr-polling）
-│   ├── model/model.go          # 数据模型（Project, Folder, Doc, FileRef）
-│   ├── cache/cache.go          # 线程安全的内存缓存，支持 TTL 和 dirty 标记
-│   ├── fuse/fs.go              # FUSE 实现（保留，需要 macFUSE）
-│   └── webdav/server.go        # WebDAV 实现（当前默认）
-└── docs/                       # 文档
+│   │   ├── client.go           # Overleaf REST API client
+│   │   └── socketio.go         # Socket.IO v0 client (xhr-polling)
+│   ├── model/model.go          # Data models (Project, Folder, Doc, FileRef)
+│   ├── cache/cache.go          # Thread-safe in-memory cache with TTL and dirty tracking
+│   ├── fuse/fs.go              # FUSE implementation (retained, requires macFUSE)
+│   └── webdav/server.go        # WebDAV implementation (current default)
+└── docs/                       # Documentation
 ```
 
-## 数据流
+## Data Flow
 
-### 读取流程
+### Read Path
 
 ```
-用户读取文件 (cat/vim/VS Code)
+User reads a file (cat/vim/VS Code)
   → WebDAV GET
     → OverleafFS.OpenFile()
-      → 检查 cache（dirty 文件使用缓存）
-      → Socket.IO joinDoc（.tex 文本文件）
-        或 REST API DownloadFile（二进制文件）
-      → 存入 cache
+      → Check cache (dirty files use cached version)
+      → Socket.IO joinDoc (for .tex text files)
+        or REST API DownloadFile (for binary files)
+      → Store in cache
     → regularFile.Read()
 ```
 
-### 写入流程（普通模式）
+### Write Path (Normal Mode)
 
 ```
-用户保存文件
+User saves a file
   → WebDAV PUT
     → OverleafFS.OpenFile(O_WRONLY|O_CREATE|O_TRUNC)
-    → regularFile.Write()  → 追加到内存 buffer
+    → regularFile.Write()  → append to in-memory buffer
     → regularFile.Close()
       → Cache.SetDirty()
-      → Client.UploadFile()  → Overleaf 远端更新
+      → Client.UploadFile()  → remote Overleaf update
       → Cache.ClearDirty()
 ```
 
-### 写入流程（Zen 模式）
+### Write Path (Zen Mode)
 
 ```
-用户保存文件
+User saves a file
   → WebDAV PUT
-    → regularFile.Write() → 追加到内存 buffer
+    → regularFile.Write() → append to in-memory buffer
     → regularFile.Close()
-      → Cache.SetDirty()   → 仅标记，不上传
-      → registerMeta()     → 记录文件元信息
+      → Cache.SetDirty()   → mark dirty only, no upload
+      → registerMeta()     → record file metadata
 
-用户执行 downleaf sync
-  → SIGUSR1 → mount 进程
+User runs downleaf sync
+  → SIGUSR1 → mount process
     → FlushAll()
-      → 遍历所有 dirty keys
-      → Client.UploadFile() 逐个上传
+      → Iterate all dirty keys
+      → Client.UploadFile() for each
       → Cache.ClearDirty()
 ```
 
-## 关键组件
+## Key Components
 
-### Socket.IO v0 客户端
+### Socket.IO v0 Client
 
-Overleaf 使用 Socket.IO **v0**（不是 v2/v3），传输层为 xhr-polling。
+Overleaf uses Socket.IO **v0** (not v2/v3), with xhr-polling as the transport layer.
 
-- **握手**: `GET /socket.io/1/?t=...&projectId=...` → 获取 session ID
-- **轮询**: `GET /socket.io/1/xhr-polling/{sid}?t=...`
-- **发送**: `POST /socket.io/1/xhr-polling/{sid}?t=...`
+- **Handshake**: `GET /socket.io/1/?t=...&projectId=...` → obtain session ID
+- **Polling**: `GET /socket.io/1/xhr-polling/{sid}?t=...`
+- **Sending**: `POST /socket.io/1/xhr-polling/{sid}?t=...`
 
-消息格式: `type:id:endpoint:data`
+Message format: `type:id:endpoint:data`
 - Type 1 = connect
 - Type 2 = heartbeat
-- Type 5 = event（joinProjectResponse, connectionRejected）
-- Type 6 = ack（joinDoc 响应）
+- Type 5 = event (joinProjectResponse, connectionRejected)
+- Type 6 = ack (joinDoc response)
 
-需要转发 GCLB cookie（Google Cloud Load Balancer 会话粘性）。
+GCLB cookies (Google Cloud Load Balancer session stickiness) must be forwarded.
 
-### WebDAV 文件系统
+### WebDAV Filesystem
 
-实现 `golang.org/x/net/webdav.FileSystem` 接口：
+Implements the `golang.org/x/net/webdav.FileSystem` interface:
 
-| 方法 | 映射到 Overleaf API |
-|------|---------------------|
-| `Stat` | 查询 cache 或 project tree |
-| `OpenFile` (读) | Socket.IO joinDoc / REST DownloadFile |
-| `OpenFile` (写) | 写入内存 buffer |
-| `Close` (写后) | REST UploadFile |
+| Method | Maps to Overleaf API |
+|--------|---------------------|
+| `Stat` | Query cache or project tree |
+| `OpenFile` (read) | Socket.IO joinDoc / REST DownloadFile |
+| `OpenFile` (write) | Write to in-memory buffer |
+| `Close` (after write) | REST UploadFile |
 | `Mkdir` | REST CreateFolder |
 | `RemoveAll` | REST DeleteEntity |
 | `Rename` | REST RenameEntity + MoveEntity |
 
-### 路径映射
+### Path Mapping
 
 ```
-WebDAV 路径              →  Overleaf 实体
-/                        →  项目列表
-/ProjectName/            →  项目根目录（RootFolder）
-/ProjectName/sub/        →  子文件夹
-/ProjectName/main.tex    →  Doc（通过 Socket.IO 读取内容）
-/ProjectName/fig.png     →  FileRef（通过 REST API 下载）
+WebDAV Path              →  Overleaf Entity
+/                        →  Project list
+/ProjectName/            →  Project root directory (RootFolder)
+/ProjectName/sub/        →  Subfolder
+/ProjectName/main.tex    →  Doc (content via Socket.IO)
+/ProjectName/fig.png     →  FileRef (download via REST API)
 ```
 
-### 缓存策略
+### Caching Strategy
 
-- TTL: 5 分钟（非 dirty 条目过期后重新拉取）
-- Dirty 条目永不过期（直到 ClearDirty）
-- 每次 Open 时重新从远端拉取最新版本（除非本地有未同步修改）
-- 文件元信息（projectID, folderID, name）存储在 metaMap 中，供 FlushAll 使用
+- TTL: 5 minutes (non-dirty entries are re-fetched after expiration)
+- Dirty entries never expire (until ClearDirty is called)
+- Each Open re-fetches the latest version from remote (unless local modifications are unsynced)
+- File metadata (projectID, folderID, name) is stored in metaMap for use by FlushAll
 
-## Overleaf API 端点
+## Overleaf API Endpoints
 
-| 端点 | 用途 |
-|------|------|
-| `GET /user/projects` | 项目列表 |
-| `GET /project/{id}` | 项目详情页（解析 CSRF token） |
-| `GET /project/{id}/entities` | 扁平文件树 |
-| `GET /project/{pid}/file/{fid}` | 下载二进制文件 |
-| `POST /project/{pid}/doc` | 创建文档 |
-| `POST /project/{pid}/folder` | 创建文件夹 |
-| `POST /project/{pid}/upload?folder_id={fid}` | 上传文件 |
-| `DELETE /project/{pid}/{type}/{id}` | 删除实体 |
-| `POST /project/{pid}/{type}/{id}/rename` | 重命名 |
-| `POST /project/{pid}/{type}/{id}/move` | 移动 |
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /user/projects` | List projects |
+| `GET /project/{id}` | Project detail page (parse CSRF token) |
+| `GET /project/{id}/entities` | Flat file tree |
+| `GET /project/{pid}/file/{fid}` | Download binary file |
+| `POST /project/{pid}/doc` | Create document |
+| `POST /project/{pid}/folder` | Create folder |
+| `POST /project/{pid}/upload?folder_id={fid}` | Upload file |
+| `DELETE /project/{pid}/{type}/{id}` | Delete entity |
+| `POST /project/{pid}/{type}/{id}/rename` | Rename |
+| `POST /project/{pid}/{type}/{id}/move` | Move |

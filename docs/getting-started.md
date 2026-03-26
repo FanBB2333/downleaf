@@ -1,13 +1,13 @@
-# Downleaf 快速开始
+# Getting Started
 
-## 安装
+## Installation
 
-### 前置条件
+### Prerequisites
 
 - Go 1.21+
-- Overleaf 账户
+- An Overleaf account
 
-### 构建
+### Build
 
 ```bash
 git clone https://github.com/FanBB2333/downleaf.git
@@ -15,46 +15,46 @@ cd downleaf
 go build -o downleaf ./cmd/downleaf
 ```
 
-## 配置
+## Configuration
 
-### 获取 Cookies
+### Obtain Cookies
 
-1. 在浏览器中登录 Overleaf
-2. 打开开发者工具（F12）→ Application → Cookies
-3. 复制 `overleaf_session2` 的完整值
+1. Log in to Overleaf in your browser
+2. Open DevTools (F12) → Application → Cookies
+3. Copy the full value of `overleaf_session2`
 
-### 创建 .env 文件
+### Create a .env File
 
-在项目根目录创建 `.env` 文件：
+Create a `.env` file in the project root:
 
 ```
 SITE=https://www.overleaf.com/
 COOKIES=overleaf_session2=s%3ASv8eHMJoBr4...
 ```
 
-> 如果使用自部署的 Overleaf 实例，将 `SITE` 改为对应地址。
+> If you use a self-hosted Overleaf instance, set `SITE` to its URL.
 
-### 验证认证
+### Verify Authentication
 
 ```bash
 ./downleaf ls
 ```
 
-如果输出项目列表，说明认证成功。
+If the project list is printed, authentication is successful.
 
-## 基本使用
+## Basic Usage
 
-### 挂载项目到本地
+### Mount Projects Locally
 
 ```bash
 ./downleaf mount
 ```
 
-这会：
-1. 在 `localhost:9090` 启动 WebDAV 服务器
-2. 将所有项目挂载到 `~/downleaf/`
+This will:
+1. Start a WebDAV server on `localhost:9090`
+2. Mount all projects to `~/downleaf/`
 
-### 用编辑器打开
+### Open with an Editor
 
 ```bash
 # VS Code
@@ -67,48 +67,48 @@ vim ~/downleaf/test-thesis/main.tex
 cd ~/downleaf/test-thesis && claude
 ```
 
-### 停止
+### Stop
 
-按 `Ctrl+C`，或在另一个终端执行：
+Press `Ctrl+C`, or run in another terminal:
 
 ```bash
 ./downleaf umount
 ```
 
-## 使用 Zen 模式
+## Using Zen Mode
 
-适合 Claude Code 等会频繁读写文件的场景。所有修改暂存本地，编辑完成后一次性同步。
+Ideal for tools like Claude Code that read and write files frequently. All changes are kept local and synced in one go when you're done.
 
 ```bash
-# 终端 1：以 zen 模式挂载
+# Terminal 1: mount in zen mode
 ./downleaf mount --zen
 
-# 终端 2：编辑项目
+# Terminal 2: edit the project
 cd ~/downleaf/test-thesis
-claude  # 或 vim, code 等
+claude  # or vim, code, etc.
 
-# 终端 3：编辑完成后同步
+# Terminal 3: sync when finished
 ./downleaf sync
 ```
 
-## 挂载单个项目
+## Mount a Single Project
 
-如果不想看到所有项目，可以使用交互式选择：
+To avoid seeing all projects, use interactive selection:
 
 ```bash
 ./downleaf mount -i
 ```
 
-或直接指定项目名/ID：
+Or specify a project by name or ID:
 
 ```bash
 ./downleaf mount --project test-thesis
 ./downleaf mount --project 692fce31ee51890d4f6f14af
 ```
 
-## 下载项目（不挂载）
+## Download a Project (Without Mounting)
 
-不需要挂载也能下载整个项目到本地：
+You can download an entire project locally without mounting:
 
 ```bash
 ./downleaf download 692fce31ee51890d4f6f14af ~/projects
