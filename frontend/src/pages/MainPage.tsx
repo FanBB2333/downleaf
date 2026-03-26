@@ -48,7 +48,7 @@ interface MainPageProps {
   setTheme: (t: Theme) => void
   setFontSize: (s: number) => void
   refreshProjects: () => Promise<void>
-  mount: (project: string, mountpoint: string, batch: boolean) => Promise<void>
+  mount: (project: string, mountpoint: string, zenMode: boolean) => Promise<void>
   unmount: () => Promise<void>
   sync: () => Promise<void>
   openMountpoint: () => Promise<void>
@@ -79,7 +79,7 @@ export function MainPage({
 }: MainPageProps) {
   const [selectedProject, setSelectedProject] = useState<string | null>('__all__')
   const [mountpoint, setMountpoint] = useState('~/downleaf')
-  const [batchMode, setBatchMode] = useState(false)
+  const [zenMode, setZenMode] = useState(false)
   const logEndRef = useRef<HTMLDivElement>(null)
   const isMounted = mountStatus?.mounted ?? false
 
@@ -90,7 +90,7 @@ export function MainPage({
   const handleMount = async () => {
     clearError()
     const proj = selectedProject === '__all__' ? '' : (selectedProject ?? '')
-    await mount(proj, mountpoint, batchMode)
+    await mount(proj, mountpoint, zenMode)
   }
 
   return (
@@ -118,7 +118,7 @@ export function MainPage({
                 <span className="w-1.5 h-1.5 rounded-full bg-sage inline-block" />
                 Mounted
               </Badge>
-              {mountStatus?.batchMode && (
+              {mountStatus?.zenMode && (
                 <Button size="sm" variant="secondary" className="h-7 text-xs" disabled={loading === 'sync'} onClick={sync}>
                   {loading === 'sync' ? 'Syncing...' : 'Sync'}
                 </Button>
@@ -197,13 +197,13 @@ export function MainPage({
               </div>
               <div className="flex items-center gap-2">
                 <Switch
-                  id="batch"
-                  checked={batchMode}
-                  onCheckedChange={setBatchMode}
+                  id="zen"
+                  checked={zenMode}
+                  onCheckedChange={setZenMode}
                   disabled={isMounted}
                 />
-                <Label htmlFor="batch" className="text-xs text-muted-foreground cursor-pointer">
-                  Batch mode — manual sync
+                <Label htmlFor="zen" className="text-xs text-muted-foreground cursor-pointer">
+                  Zen mode — sync on exit or manually
                 </Label>
               </div>
 

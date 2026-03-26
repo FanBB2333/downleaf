@@ -31,7 +31,7 @@ type fileMeta struct {
 type OverleafFS struct {
 	Client        *api.Client
 	Cache         *cache.Cache
-	BatchMode     bool   // if true, Flush is a no-op; use FlushAll to sync
+	ZenMode       bool   // if true, Flush is a no-op; use FlushAll to sync
 	projectFilter string // if set, only show projects matching this name or ID
 
 	projectsMu sync.RWMutex
@@ -427,8 +427,8 @@ func (f *FileNode) Flush(ctx context.Context, fh gofuse.FileHandle) syscall.Errn
 		return 0
 	}
 
-	// In batch mode, keep dirty — will be flushed by FlushAll
-	if f.ofs.BatchMode {
+	// In zen mode, keep dirty — will be flushed by FlushAll
+	if f.ofs.ZenMode {
 		f.ofs.registerMeta(cacheKey, f.projectID, f.folderID, f.name)
 		return 0
 	}
@@ -787,14 +787,14 @@ type MountResult struct {
 const PIDFile = "/tmp/downleaf.pid"
 
 // Mount mounts the Overleaf filesystem at the given mountpoint.
-func Mount(mountpoint string, client *api.Client, projectFilter string, batchMode bool) (*MountResult, error) {
+func Mount(mountpoint string, client *api.Client, projectFilter string, zenMode bool) (*MountResult, error) {
 	if err := os.MkdirAll(mountpoint, 0755); err != nil {
 		return nil, fmt.Errorf("create mountpoint: %w", err)
 	}
 
 	ofs := NewOverleafFS(client)
 	ofs.projectFilter = projectFilter
-	ofs.BatchMode = batchMode
+	ofs.ZenMode = zenMode
 	root := &RootNode{ofs: ofs}
 
 	server, err := gofuse.Mount(mountpoint, root, &gofuse.Options{

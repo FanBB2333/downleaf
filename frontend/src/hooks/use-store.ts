@@ -116,11 +116,11 @@ export function useStore() {
     }
   }, [])
 
-  const mount = useCallback(async (projectName: string, mountpoint: string, batchMode: boolean) => {
+  const mount = useCallback(async (projectName: string, mountpoint: string, zenMode: boolean) => {
     setLoading('mount')
     setError('')
     try {
-      await Mount(projectName, mountpoint, batchMode)
+      await Mount(projectName, mountpoint, zenMode)
       await GetMountStatus().then(setMountStatus)
     } catch (e: unknown) {
       setError(String(e))

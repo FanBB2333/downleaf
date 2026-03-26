@@ -20,7 +20,7 @@ export namespace gui {
 	    mounted: boolean;
 	    mountpoint: string;
 	    project: string;
-	    batchMode: boolean;
+	    zenMode: boolean;
 	    webdavAddr: string;
 	
 	    static createFrom(source: any = {}) {
@@ -32,7 +32,7 @@ export namespace gui {
 	        this.mounted = source["mounted"];
 	        this.mountpoint = source["mountpoint"];
 	        this.project = source["project"];
-	        this.batchMode = source["batchMode"];
+	        this.zenMode = source["zenMode"];
 	        this.webdavAddr = source["webdavAddr"];
 	    }
 	}

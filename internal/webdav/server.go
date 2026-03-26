@@ -41,7 +41,7 @@ type resolveEntry struct {
 type OverleafFS struct {
 	Client        *api.Client
 	Cache         *cache.Cache
-	BatchMode     bool
+	ZenMode       bool
 	ProjectFilter string
 
 	projectsMu      sync.RWMutex
@@ -803,8 +803,8 @@ func (o *OverleafFS) renameTempToReal(oldName, newName string) error {
 	// Clean up temp cache entry
 	o.Cache.Delete(tmpCacheKey)
 
-	// In non-batch mode, upload immediately
-	if !o.BatchMode {
+	// In non-zen mode, upload immediately
+	if !o.ZenMode {
 		log.Printf("uploading %s to Overleaf", target.entityName())
 		if err := o.Client.UploadFile(target.project.ID, folderID, target.entityName(), data); err != nil {
 			log.Printf("upload %s: %v", target.entityName(), err)
@@ -989,7 +989,7 @@ func (f *regularFile) Close() error {
 	f.ofs.Cache.SetDirty(cacheKey, f.content)
 	f.ofs.registerMeta(cacheKey, f.projectID, f.folderID, f.name)
 
-	if f.ofs.BatchMode {
+	if f.ofs.ZenMode {
 		return nil
 	}
 

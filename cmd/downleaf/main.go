@@ -96,7 +96,7 @@ func run() error {
 		mountpoint := filepath.Join(os.Getenv("HOME"), "downleaf")
 		addr := "localhost:9090"
 		projectFilter := ""
-		batchMode := false
+		zenMode := false
 		interactive := false
 		for i := 2; i < len(os.Args); i++ {
 			switch os.Args[i] {
@@ -110,8 +110,8 @@ func run() error {
 					addr = "localhost:" + os.Args[i+1]
 					i++
 				}
-			case "--batch":
-				batchMode = true
+			case "--zen":
+				zenMode = true
 			case "-i", "--interactive":
 				interactive = true
 			default:
@@ -125,7 +125,7 @@ func run() error {
 			}
 			projectFilter = selected
 		}
-		return cmdMount(client, addr, mountpoint, projectFilter, batchMode)
+		return cmdMount(client, addr, mountpoint, projectFilter, zenMode)
 	case "download":
 		if len(os.Args) < 3 {
 			return fmt.Errorf("usage: downleaf download <project-id> [dest-dir]")
@@ -151,10 +151,11 @@ func printUsage() {
 	fmt.Println("  tree <project-id>                  Show project file tree")
 	fmt.Println("  cat <project-id> <doc-id>          Print document content")
 	fmt.Println("  download <project-id> [dest-dir]   Download project files locally")
-	fmt.Println("  mount [mountpoint] [--project <name|id>] [--batch] [-i] [--port PORT]")
+	fmt.Println("  mount [mountpoint] [--project <name|id>] [--zen] [-i] [--port PORT]")
 	fmt.Println("                                     Start WebDAV server and mount (default: ~/downleaf, port 9090)")
+	fmt.Println("                                     --zen: zen mode — changes stay local, sync on exit or 'downleaf sync'")
 	fmt.Println("                                     -i: interactive project selection")
-	fmt.Println("  sync                               Push all local changes to Overleaf (batch mode)")
+	fmt.Println("  sync                               Push all local changes to Overleaf (zen mode)")
 	fmt.Println("  umount [mountpoint]                Unmount filesystem")
 	fmt.Println("  version                            Print version")
 }
@@ -359,20 +360,22 @@ func cmdSync() error {
 	return nil
 }
 
-func cmdMount(client *api.Client, addr, mountpoint, projectFilter string, batchMode bool) error {
-	if batchMode {
-		fmt.Println("Batch mode: writes are cached locally. Use 'downleaf sync' to push to Overleaf.")
+func cmdMount(client *api.Client, addr, mountpoint, projectFilter string, zenMode bool) error {
+	if zenMode {
+		fmt.Println("Zen mode: all changes stay local for distraction-free editing.")
+		fmt.Println("  Sync manually:  downleaf sync")
+		fmt.Println("  Sync on exit:   Ctrl+C")
 	}
 
 	ofs := dav.NewOverleafFS(client)
-	ofs.BatchMode = batchMode
+	ofs.ZenMode = zenMode
 	ofs.ProjectFilter = projectFilter
 
 	// Write PID file for sync command
 	os.WriteFile(dav.PIDFile, fmt.Appendf(nil, "%d", os.Getpid()), 0644)
 	defer os.Remove(dav.PIDFile)
 
-	// Handle SIGUSR1 for batch sync
+	// Handle SIGUSR1 for zen mode sync
 	syncCh := make(chan os.Signal, 1)
 	signal.Notify(syncCh, syscall.SIGUSR1)
 	go func() {
