@@ -45,7 +45,7 @@ downleaf
       → Cache.ClearDirty()
 ```
 
-### 写入流程（Batch 模式）
+### 写入流程（Zen 模式）
 
 ```
 用户保存文件

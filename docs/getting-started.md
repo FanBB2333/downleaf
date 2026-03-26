@@ -75,13 +75,13 @@ cd ~/downleaf/test-thesis && claude
 ./downleaf umount
 ```
 
-## 使用 Batch 模式
+## 使用 Zen 模式
 
 适合 Claude Code 等会频繁读写文件的场景。所有修改暂存本地，编辑完成后一次性同步。
 
 ```bash
-# 终端 1：以 batch 模式挂载
-./downleaf mount --batch
+# 终端 1：以 zen 模式挂载
+./downleaf mount --zen
 
 # 终端 2：编辑项目
 cd ~/downleaf/test-thesis

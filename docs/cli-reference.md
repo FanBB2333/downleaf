@@ -98,7 +98,7 @@ downleaf mount [mountpoint] [flags]
 | Flag | 说明 |
 |------|------|
 | `--project <name\|id>` | 只挂载指定项目 |
-| `--batch` | 批量模式：写入缓存到本地，不自动同步。使用 `downleaf sync` 手动推送 |
+| `--zen` | Zen 模式：写入缓存到本地，不自动同步。退出或执行 `downleaf sync` 时推送 |
 | `-i`, `--interactive` | 交互式选择要挂载的项目 |
 | `--port <port>` | 指定 WebDAV 服务器端口（默认 9090） |
 
@@ -112,7 +112,7 @@ downleaf mount [mountpoint] [flags]
 downleaf mount
 
 # 交互式选择项目 + 批量模式
-downleaf mount -i --batch
+downleaf mount -i --zen
 
 # 指定挂载点和端口
 downleaf mount /mnt/overleaf --port 8080
@@ -139,7 +139,7 @@ downleaf mount --project test-thesis
 
 ### `sync`
 
-将本地所有未同步的修改推送到 Overleaf。仅在 `--batch` 模式下使用。
+将本地所有未同步的修改推送到 Overleaf。仅在 `--zen` 模式下使用。
 
 ```
 downleaf sync

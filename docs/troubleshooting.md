@@ -69,7 +69,7 @@ diskutil unmount force ~/downleaf
 ### 写入后 Overleaf 端未更新
 
 - **普通模式**: 检查 mount 终端的日志输出，看是否有 upload 错误
-- **Batch 模式**: 需要执行 `downleaf sync` 才会推送
+- **Zen 模式**: 需要执行 `downleaf sync` 才会推送
 - 确认 CSRF token 未过期（长时间运行后可能失效，重启 mount 即可）
 
 ### "no running mount found" (sync 命令)
