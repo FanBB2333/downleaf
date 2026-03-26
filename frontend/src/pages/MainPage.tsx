@@ -1,19 +1,13 @@
 import { useState, useRef, useEffect } from 'react'
+import { RotateCw, Terminal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import {
   Dialog,
   DialogContent,
@@ -33,8 +27,8 @@ import type { model } from '../../wailsjs/go/models'
 import type { Theme } from '@/hooks/use-store'
 
 /* Shorthand for the drag / no-drag inline style */
-const DRAG: React.CSSProperties = { WebkitAppRegion: 'drag' } as React.CSSProperties
-const NO_DRAG: React.CSSProperties = { WebkitAppRegion: 'no-drag' } as React.CSSProperties
+const DRAG: React.CSSProperties = { WebkitAppRegion: 'drag', '--wails-draggable': 'drag' } as React.CSSProperties
+const NO_DRAG: React.CSSProperties = { WebkitAppRegion: 'no-drag', '--wails-draggable': 'no-drag' } as React.CSSProperties
 
 interface MainPageProps {
   loginStatus: gui.LoginStatus
@@ -94,195 +88,185 @@ export function MainPage({
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* ===== Immersive Title Bar =====
-          Full-width drag region. Left side reserves 78px for macOS traffic lights.
-          Interactive elements inside use no-drag so they remain clickable. */}
-      <div
-        className="flex items-center justify-between pl-[78px] pr-4 h-12 shrink-0 select-none bg-background/60 backdrop-blur-md border-b border-border/50"
-        style={DRAG}
-      >
-        {/* Left: title */}
-        <div className="flex items-center gap-2.5">
-          <span className="text-sm font-semibold tracking-tight">Downleaf</span>
-          <Badge variant="secondary" className="text-[10px] font-normal px-1.5 py-0">
-            v0.1.0
-          </Badge>
+    <div className="flex h-full bg-background overflow-hidden">
+      {/* ===== Left Sidebar ===== */}
+      <div className="w-[280px] shrink-0 border-r bg-muted/10 flex flex-col h-full z-10 relative">
+        <div style={DRAG} className="h-12 border-b border-border/50 flex items-center px-4 pl-[78px] shrink-0 bg-background/60 backdrop-blur-md">
+          <div className="flex items-center gap-2.5">
+            <span className="text-sm font-semibold tracking-tight">Downleaf</span>
+            <Badge variant="secondary" className="text-[10px] font-normal px-1.5 py-0 bg-muted/60">
+              v0.1.0
+            </Badge>
+          </div>
         </div>
-
-        {/* Center: mount actions */}
-        <div className="flex items-center gap-1.5" style={NO_DRAG}>
-          {isMounted ? (
-            <>
-              <Badge variant="outline" className="gap-1.5 text-[11px] font-normal border-sage/40 text-sage">
-                <span className="w-1.5 h-1.5 rounded-full bg-sage inline-block" />
-                Mounted
-              </Badge>
-              {mountStatus?.zenMode && (
-                <Button size="sm" variant="secondary" className="h-7 text-xs" disabled={loading === 'sync'} onClick={sync}>
-                  {loading === 'sync' ? 'Syncing...' : 'Sync'}
-                </Button>
-              )}
-              <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={openMountpoint}>
-                Open
-              </Button>
-              <Button size="sm" variant="destructive" className="h-7 text-xs" disabled={loading === 'unmount'} onClick={unmount}>
-                {loading === 'unmount' ? '...' : 'Unmount'}
-              </Button>
-            </>
-          ) : (
-            <Button size="sm" className="h-7 text-xs" disabled={loading === 'mount'} onClick={handleMount}>
-              {loading === 'mount' ? 'Mounting...' : 'Mount'}
-            </Button>
-          )}
+        
+        <div className="p-4 flex items-center justify-between shrink-0">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Projects</span>
+          <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground" onClick={refreshProjects} title="Refresh">
+            <RotateCw className="w-3.5 h-3.5" />
+          </Button>
         </div>
-
-        {/* Right: settings & user */}
-        <div className="flex items-center gap-1" style={NO_DRAG}>
-          <SettingsDialog theme={theme} fontSize={fontSize} setTheme={setTheme} setFontSize={setFontSize} />
-
-          <DropdownMenu>
-            <DropdownMenuTrigger className="inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-md hover:bg-muted/60 transition-colors cursor-pointer">
-              <span className="w-1.5 h-1.5 rounded-full bg-sage inline-block" />
-              {loginStatus.email}
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={onLogout} className="text-destructive">
-                Log out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+        
+        <ScrollArea className="flex-1 min-h-0 px-3">
+          <div className="space-y-0.5 pb-4">
+            <button
+               onClick={() => !isMounted && setSelectedProject('__all__')}
+               disabled={isMounted}
+               className={`w-full text-left px-3 py-2 rounded-md transition-all duration-200 text-sm flex items-center justify-between outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                 selectedProject === '__all__' ? 'bg-primary text-primary-foreground font-medium shadow-sm' : 'hover:bg-muted/60 text-muted-foreground hover:text-foreground'
+               } ${(isMounted && selectedProject !== '__all__') ? 'opacity-40 cursor-not-allowed' : ''}`}
+            >
+               <span>All Projects</span>
+            </button>
+            
+            {projects.map((p) => (
+              <button
+                 key={p._id}
+                 onClick={() => !isMounted && setSelectedProject(p.name)}
+                 disabled={isMounted}
+                 className={`w-full text-left px-3 py-2.5 rounded-md transition-all duration-200 text-sm flex auto items-center justify-between outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                   selectedProject === p.name ? 'bg-primary text-primary-foreground font-medium shadow-sm' : 'hover:bg-muted/60 text-muted-foreground hover:text-foreground'
+                 } ${(isMounted && selectedProject !== p.name) ? 'opacity-40 cursor-not-allowed' : ''}`}
+              >
+                 <span className="truncate mr-3">{p.name}</span>
+                 <Badge variant="secondary" className={`text-[10px] shrink-0 transition-colors ${selectedProject === p.name ? 'bg-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/30 border-transparent shadow-none' : 'bg-background hover:bg-muted'}`}>
+                    {p.accessLevel}
+                 </Badge>
+              </button>
+            ))}
+            {projects.length === 0 && (
+              <p className="text-xs text-muted-foreground px-3 py-2">No projects found.</p>
+            )}
+          </div>
+        </ScrollArea>
       </div>
 
-      {/* ===== Main Content — left/right layout ===== */}
-      <div className="flex-1 flex min-h-0 px-4 py-4 gap-4">
-        {/* Left: Mount Configuration */}
-        <div className="w-[320px] shrink-0 overflow-y-auto">
-          <Card className="h-fit">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium">Mount Configuration</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Project</Label>
-                  <Select
-                    value={selectedProject ?? '__all__'}
-                    onValueChange={(val) => setSelectedProject(val)}
-                    disabled={isMounted}
-                  >
-                    <SelectTrigger className="h-9 w-full">
-                      <SelectValue placeholder="All Projects" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__all__">All Projects</SelectItem>
-                      {projects.map((p) => (
-                        <SelectItem key={p._id} value={p.name}>
-                          {p.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Mountpoint</Label>
+      {/* ===== Right Main Content ===== */}
+      <div className="flex-1 flex flex-col min-w-0 h-full relative">
+        {/* Main Content Header (Drag region) */}
+        <div className="h-12 border-b border-border/50 flex items-center justify-end px-4 shrink-0 bg-background/60 backdrop-blur-md z-10" style={DRAG}>
+          <div className="flex items-center gap-1.5" style={NO_DRAG}>
+             {isMounted && mountStatus && (
+               <Badge variant="outline" className="gap-1.5 text-[11px] font-normal border-sage/40 text-sage mr-2 h-6 px-2 shadow-sm">
+                 <span className="w-1.5 h-1.5 rounded-full bg-sage inline-block animate-pulse-slow" />
+                 Mounted
+               </Badge>
+             )}
+             <SettingsDialog theme={theme} fontSize={fontSize} setTheme={setTheme} setFontSize={setFontSize} />
+
+             <DropdownMenu>
+               <DropdownMenuTrigger className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground px-2 py-1.5 rounded-md hover:bg-muted/60 transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                 <span className="w-1.5 h-1.5 rounded-full bg-sage inline-block" />
+                 {loginStatus.email}
+               </DropdownMenuTrigger>
+               <DropdownMenuContent align="end" className="w-48">
+                 <DropdownMenuItem onClick={onLogout} className="text-destructive focus:text-destructive focus:bg-destructive/10 cursor-pointer">
+                   Log out
+                 </DropdownMenuItem>
+               </DropdownMenuContent>
+             </DropdownMenu>
+          </div>
+        </div>
+
+        {/* Configurations & Logs Area */}
+        <div className="flex-1 overflow-y-auto p-6 lg:p-10 flex flex-col gap-8 bg-muted/5">
+          <div className="max-w-3xl w-full mx-auto space-y-8 flex-1 flex flex-col">
+            
+            {/* Configuration Card */}
+            <Card className="shrink-0 shadow-sm border-border/60 overflow-hidden text-left bg-card group/card">
+              <CardHeader className="pb-5 pt-6 px-6 bg-card">
+                <CardTitle className="text-lg">Mount Setup</CardTitle>
+                <CardDescription className="text-sm mt-1.5">
+                  Configure local sync for <strong className="font-semibold text-foreground">{selectedProject === '__all__' ? 'All Projects' : selectedProject}</strong>
+                </CardDescription>
+              </CardHeader>
+              <Separator />
+              <CardContent className="space-y-6 pt-6 px-6 pb-6 bg-card">
+                <div className="space-y-2.5">
+                  <Label htmlFor="mountpoint" className="text-sm font-medium">Local Mountpoint</Label>
                   <Input
+                    id="mountpoint"
                     value={mountpoint}
                     onChange={(e) => setMountpoint(e.target.value)}
                     disabled={isMounted}
-                    className="h-9"
+                    className="font-mono text-sm h-10 bg-background/50 shadow-sm"
                   />
+                  <p className="text-xs text-muted-foreground pt-0.5">The absolute path where project files will be synchronized.</p>
                 </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="zen"
-                  checked={zenMode}
-                  onCheckedChange={setZenMode}
-                  disabled={isMounted}
-                />
-                <Label htmlFor="zen" className="text-xs text-muted-foreground cursor-pointer">
-                  Zen mode — sync on exit or manually
-                </Label>
-              </div>
-
-              {isMounted && mountStatus && (
-                <div className="text-xs text-sage px-3 py-2 rounded-md bg-sage-soft/30 border border-sage/20">
-                  Mounted at <span className="font-medium">{mountStatus.mountpoint}</span>
-                  {mountStatus.project
-                    ? <> &middot; {mountStatus.project}</>
-                    : <> &middot; all projects</>
-                  }
+                
+                <div className="flex items-center space-x-3 bg-muted/40 p-4 rounded-lg border border-border/50 transition-colors hover:bg-muted/60">
+                  <Switch
+                    id="zen"
+                    checked={zenMode}
+                    onCheckedChange={setZenMode}
+                    disabled={isMounted}
+                  />
+                  <Label htmlFor="zen" className="text-sm font-medium cursor-pointer flex-1">
+                    Zen Mode
+                    <p className="text-xs text-muted-foreground font-normal leading-snug mt-1">
+                      Disable auto-sync on code change. Sync on manually.
+                    </p>
+                  </Label>
                 </div>
-              )}
 
-              {error && (
-                <div className="text-xs text-destructive px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20">
-                  {error}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Right: Project List */}
-        <Card className="flex-1 flex flex-col min-h-0">
-          <CardHeader className="pb-3 flex-row items-center justify-between shrink-0">
-            <CardTitle className="text-sm font-medium">
-              Projects
-              <span className="ml-2 text-xs text-muted-foreground font-normal">
-                ({projects.length})
-              </span>
-            </CardTitle>
-            <Button variant="ghost" size="sm" className="text-xs h-7" onClick={refreshProjects}>
-              Refresh
-            </Button>
-          </CardHeader>
-          <CardContent className="pt-0 flex-1 overflow-y-auto min-h-0">
-            {projects.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4 text-center">
-                No projects found.
-              </p>
-            ) : (
-              <div className="space-y-0.5">
-                {projects.map((p) => (
-                  <div
-                    key={p._id}
-                    className="flex items-center justify-between px-3 py-2 rounded-md hover:bg-muted/50 transition-colors"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{p.name}</p>
-                      <p className="text-[11px] text-muted-foreground font-mono truncate">
-                        {p._id}
-                      </p>
-                    </div>
-                    <Badge variant="secondary" className="text-[10px] shrink-0 ml-2">
-                      {p.accessLevel}
-                    </Badge>
+                {isMounted && mountStatus && (
+                  <div className="text-sm text-sage px-4 py-3 rounded-md bg-sage-soft/20 border border-sage/20 flex flex-col gap-1">
+                     <span className="font-medium">Active Mount</span>
+                     <span className="font-mono text-xs opacity-90">{mountStatus.mountpoint}</span>
                   </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+                )}
 
-      {/* ===== Log Panel ===== */}
-      <div className="border-t bg-card/80 backdrop-blur-sm">
-        <div className="flex items-center justify-between px-5 py-1.5">
-          <span className="text-[11px] font-medium text-muted-foreground">Logs</span>
-          <Button variant="ghost" size="sm" className="text-[11px] h-6 px-2" onClick={clearLogs}>
-            Clear
-          </Button>
+                {error && (
+                  <div className="text-sm text-destructive px-4 py-3 rounded-md bg-destructive/10 border border-destructive/20 font-medium">
+                    {error}
+                  </div>
+                )}
+              </CardContent>
+              <div className="px-6 py-4 bg-muted/30 border-t border-border/50 flex items-center justify-end gap-3 rounded-b-xl">
+                 {isMounted ? (
+                   <>
+                     <Button variant="outline" className="shadow-sm" onClick={openMountpoint}>
+                       Open Folder
+                     </Button>
+                     {mountStatus?.zenMode && (
+                       <Button variant="secondary" className="shadow-sm" disabled={loading === 'sync'} onClick={sync}>
+                         {loading === 'sync' ? 'Syncing...' : 'Sync Now'}
+                       </Button>
+                     )}
+                     <Button variant="destructive" className="shadow-sm" disabled={loading === 'unmount'} onClick={unmount}>
+                       {loading === 'unmount' ? 'Unmounting...' : 'Unmount'}
+                     </Button>
+                   </>
+                 ) : (
+                   <Button disabled={loading === 'mount'} onClick={handleMount} className="min-w-[120px] shadow-sm">
+                     {loading === 'mount' ? 'Mounting...' : 'Mount Project'}
+                   </Button>
+                 )}
+              </div>
+            </Card>
+
+            {/* Logs Area */}
+            <Card className="flex-1 flex flex-col min-h-[220px] shadow-sm border-border/60 overflow-hidden text-left">
+              <CardHeader className="py-3.5 px-6 flex-row items-center justify-between border-b border-border/50 shrink-0 bg-muted/30">
+                <CardTitle className="text-sm font-medium flex items-center gap-2 text-muted-foreground">
+                  <Terminal className="w-4 h-4" />
+                  Terminal Logs
+                </CardTitle>
+                <Button variant="ghost" size="sm" className="h-7 text-xs px-2.5 text-muted-foreground hover:text-foreground" onClick={clearLogs}>
+                  Clear
+                </Button>
+              </CardHeader>
+              <CardContent className="p-0 flex-1 relative bg-card/50">
+                <ScrollArea className="absolute inset-0 w-full h-full text-left bg-background/30">
+                  <div className="p-5 font-mono text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-all min-h-[220px]">
+                    {logs.length > 0 ? logs.join('\n') : "No logs available."}
+                    <div ref={logEndRef} className="h-4" />
+                  </div>
+                </ScrollArea>
+              </CardContent>
+            </Card>
+          </div>
         </div>
-        <Separator />
-        <ScrollArea className="h-[130px] px-5 py-2">
-          <pre className="text-[11px] leading-relaxed text-muted-foreground font-mono whitespace-pre-wrap break-all">
-            {logs.join('\n')}
-          </pre>
-          <div ref={logEndRef} />
-        </ScrollArea>
       </div>
     </div>
   )
@@ -303,7 +287,7 @@ function SettingsDialog({
 }) {
   return (
     <Dialog>
-      <DialogTrigger className="inline-flex items-center text-[11px] px-2 py-1 rounded-md hover:bg-muted/60 transition-colors cursor-pointer">
+      <DialogTrigger className="inline-flex items-center text-[11px] font-medium text-muted-foreground hover:text-foreground px-2 py-1.5 rounded-md hover:bg-muted/60 transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring">
         Settings
       </DialogTrigger>
       <DialogContent className="sm:max-w-sm">
