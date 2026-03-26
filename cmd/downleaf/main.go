@@ -95,7 +95,7 @@ func run() error {
 	case "mount":
 		mountpoint := filepath.Join(os.Getenv("HOME"), "downleaf")
 		addr := "localhost:9090"
-		projectFilter := ""
+		projectFilter := os.Getenv("PROJECT")
 		zenMode := false
 		interactive := false
 		for i := 2; i < len(os.Args); i++ {
@@ -158,6 +158,11 @@ func printUsage() {
 	fmt.Println("  sync                               Push all local changes to Overleaf (zen mode)")
 	fmt.Println("  umount [mountpoint]                Unmount filesystem")
 	fmt.Println("  version                            Print version")
+	fmt.Println()
+	fmt.Println("Environment variables (via .env or shell):")
+	fmt.Println("  SITE       Overleaf site URL (required)")
+	fmt.Println("  COOKIES    Session cookie (required)")
+	fmt.Println("  PROJECT    Default project name or ID for mount")
 }
 
 func cmdLS(client *api.Client) error {
