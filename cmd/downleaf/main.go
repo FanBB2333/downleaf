@@ -374,7 +374,9 @@ func cmdMount(client *api.Client, addr, mountpoint, projectFilter string, zenMod
 
 	ofs := dav.NewOverleafFS(client)
 	ofs.ZenMode = zenMode
-	ofs.ProjectFilter = projectFilter
+	if projectFilter != "" {
+		ofs.ProjectFilters = []string{projectFilter}
+	}
 
 	// Write PID file for sync command
 	os.WriteFile(dav.PIDFile, fmt.Appendf(nil, "%d", os.Getpid()), 0644)

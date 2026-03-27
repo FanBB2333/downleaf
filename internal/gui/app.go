@@ -30,10 +30,10 @@ type LoginStatus struct {
 
 // MountStatus is returned to the frontend.
 type MountStatus struct {
-	Mounted    bool   `json:"mounted"`
-	Mountpoint string `json:"mountpoint"`
-	Project    string `json:"project"`
-	ZenMode    bool   `json:"zenMode"`
+	Mounted    bool     `json:"mounted"`
+	Mountpoint string   `json:"mountpoint"`
+	Project    []string `json:"project"`
+	ZenMode    bool     `json:"zenMode"`
 	WebDAVAddr string `json:"webdavAddr"`
 }
 
@@ -50,7 +50,7 @@ type App struct {
 	mountpoint string
 	zenMode    bool
 	addr       string
-	project    string // project filter (name or empty for all)
+	projects   []string // project filters (names or empty for all)
 
 	logMu  sync.Mutex
 	logBuf []string
@@ -149,7 +149,7 @@ func (a *App) ListProjects() ([]model.Project, error) {
 }
 
 // Mount starts the WebDAV server and mounts the filesystem.
-func (a *App) Mount(projectName string, mountpoint string, zenMode bool) error {
+func (a *App) Mount(projectNames []string, mountpoint string, zenMode bool) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -166,8 +166,8 @@ func (a *App) Mount(projectName string, mountpoint string, zenMode bool) error {
 
 	ofs := dav.NewOverleafFS(a.client)
 	ofs.ZenMode = zenMode
-	if projectName != "" {
-		ofs.ProjectFilter = projectName
+	if len(projectNames) > 0 {
+		ofs.ProjectFilters = projectNames
 	}
 
 	// Start WebDAV server
@@ -188,7 +188,7 @@ func (a *App) Mount(projectName string, mountpoint string, zenMode bool) error {
 	a.mounted = true
 	a.mountpoint = mountpoint
 	a.zenMode = zenMode
-	a.project = projectName
+	a.projects = projectNames
 
 	wailsRuntime.EventsEmit(a.ctx, "mountStatusChanged")
 	return nil
@@ -241,7 +241,7 @@ func (a *App) GetMountStatus() *MountStatus {
 	return &MountStatus{
 		Mounted:    a.mounted,
 		Mountpoint: a.mountpoint,
-		Project:    a.project,
+		Project:    a.projects,
 		ZenMode:    a.zenMode,
 		WebDAVAddr: a.addr,
 	}

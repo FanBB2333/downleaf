@@ -19,7 +19,7 @@ export namespace gui {
 	export class MountStatus {
 	    mounted: boolean;
 	    mountpoint: string;
-	    project: string;
+	    project: string[];
 	    zenMode: boolean;
 	    webdavAddr: string;
 	

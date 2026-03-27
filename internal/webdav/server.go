@@ -41,8 +41,8 @@ type resolveEntry struct {
 type OverleafFS struct {
 	Client        *api.Client
 	Cache         *cache.Cache
-	ZenMode       bool
-	ProjectFilter string
+	ZenMode        bool
+	ProjectFilters []string
 
 	projectsMu      sync.RWMutex
 	projects        []model.Project
@@ -128,6 +128,18 @@ func (o *OverleafFS) invalidateResolveCache(prefix string) {
 	o.resolveMu.Unlock()
 }
 
+func (o *OverleafFS) isProjectAllowed(p model.Project) bool {
+	if len(o.ProjectFilters) == 0 {
+		return true
+	}
+	for _, filter := range o.ProjectFilters {
+		if p.ID == filter || strings.EqualFold(p.Name, filter) {
+			return true
+		}
+	}
+	return false
+}
+
 func (o *OverleafFS) getActiveProjects() []model.Project {
 	o.projectsMu.RLock()
 	defer o.projectsMu.RUnlock()
@@ -136,7 +148,7 @@ func (o *OverleafFS) getActiveProjects() []model.Project {
 		if p.Archived || p.Trashed {
 			continue
 		}
-		if o.ProjectFilter != "" && p.ID != o.ProjectFilter && !strings.EqualFold(p.Name, o.ProjectFilter) {
+		if !o.isProjectAllowed(p) {
 			continue
 		}
 		result = append(result, p)
@@ -151,7 +163,7 @@ func (o *OverleafFS) findProjectByName(name string) (model.Project, bool) {
 		if p.Archived || p.Trashed {
 			continue
 		}
-		if o.ProjectFilter != "" && p.ID != o.ProjectFilter && !strings.EqualFold(p.Name, o.ProjectFilter) {
+		if !o.isProjectAllowed(p) {
 			continue
 		}
 		if sanitizeName(p.Name) == name {

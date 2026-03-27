@@ -15,7 +15,7 @@ export function ListProjects():Promise<Array<model.Project>>;
 
 export function Login(arg1:string,arg2:string):Promise<gui.LoginStatus>;
 
-export function Mount(arg1:string,arg2:string,arg3:boolean):Promise<void>;
+export function Mount(arg1:Array<string>,arg2:string,arg3:boolean):Promise<void>;
 
 export function OpenMountpoint():Promise<void>;
 

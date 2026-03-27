@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { RotateCw, Terminal } from 'lucide-react'
+import { RotateCw, Terminal, Search, Folder, Library } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -42,7 +42,7 @@ interface MainPageProps {
   setTheme: (t: Theme) => void
   setFontSize: (s: number) => void
   refreshProjects: () => Promise<void>
-  mount: (project: string, mountpoint: string, zenMode: boolean) => Promise<void>
+  mount: (projects: string[], mountpoint: string, zenMode: boolean) => Promise<void>
   unmount: () => Promise<void>
   sync: () => Promise<void>
   openMountpoint: () => Promise<void>
@@ -71,7 +71,8 @@ export function MainPage({
   clearError,
   onLogout,
 }: MainPageProps) {
-  const [selectedProject, setSelectedProject] = useState<string | null>('__all__')
+  const [selectedProjects, setSelectedProjects] = useState<string[]>([])
+  const [searchQuery, setSearchQuery] = useState('')
   const [mountpoint, setMountpoint] = useState('~/downleaf')
   const [zenMode, setZenMode] = useState(false)
   const logEndRef = useRef<HTMLDivElement>(null)
@@ -81,11 +82,27 @@ export function MainPage({
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [logs])
 
+  const handleProjectClick = (name: string) => {
+    if (isMounted) return
+    if (name === '__all__') {
+      setSelectedProjects([])
+      return
+    }
+    setSelectedProjects(prev => {
+      if (prev.includes(name)) {
+        return prev.filter(p => p !== name)
+      } else {
+        return [...prev, name]
+      }
+    })
+  }
+
   const handleMount = async () => {
     clearError()
-    const proj = selectedProject === '__all__' ? '' : (selectedProject ?? '')
-    await mount(proj, mountpoint, zenMode)
+    await mount(selectedProjects, mountpoint, zenMode)
   }
+
+  const filteredProjects = projects.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
 
   return (
     <div className="flex h-full bg-background overflow-hidden">
@@ -108,35 +125,47 @@ export function MainPage({
         </div>
         
         <ScrollArea className="flex-1 min-h-0 px-3">
-          <div className="space-y-0.5 pb-4">
-            <button
-               onClick={() => !isMounted && setSelectedProject('__all__')}
-               disabled={isMounted}
-               className={`w-full text-left px-3 py-2 rounded-md transition-all duration-200 text-sm flex items-center justify-between outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                 selectedProject === '__all__' ? 'bg-primary text-primary-foreground font-medium shadow-sm' : 'hover:bg-muted/60 text-muted-foreground hover:text-foreground'
-               } ${(isMounted && selectedProject !== '__all__') ? 'opacity-40 cursor-not-allowed' : ''}`}
-            >
-               <span>All Projects</span>
-            </button>
-            
-            {projects.map((p) => (
+          <div className="space-y-2 pb-4">
+            <div className="relative mb-2">
+              <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                placeholder="Filter projects..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-7.5 pl-7 text-xs bg-background/50 border-border/40 focus-visible:ring-1"
+                disabled={isMounted}
+              />
+            </div>
+            <div className="space-y-0.5">
               <button
-                 key={p._id}
-                 onClick={() => !isMounted && setSelectedProject(p.name)}
+                 onClick={() => handleProjectClick('__all__')}
                  disabled={isMounted}
-                 className={`w-full text-left px-3 py-2.5 rounded-md transition-all duration-200 text-sm flex auto items-center justify-between outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                   selectedProject === p.name ? 'bg-primary text-primary-foreground font-medium shadow-sm' : 'hover:bg-muted/60 text-muted-foreground hover:text-foreground'
-                 } ${(isMounted && selectedProject !== p.name) ? 'opacity-40 cursor-not-allowed' : ''}`}
+                 className={`w-full text-left px-3 py-2 rounded-md transition-all duration-200 text-sm flex items-center justify-between outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                   selectedProjects.length === 0 ? 'bg-primary text-primary-foreground font-medium shadow-sm' : 'hover:bg-muted/60 text-muted-foreground hover:text-foreground'
+                 } ${(isMounted && selectedProjects.length > 0) ? 'opacity-40 cursor-not-allowed' : ''}`}
               >
-                 <span className="truncate mr-3">{p.name}</span>
-                 <Badge variant="secondary" className={`text-[10px] shrink-0 transition-colors ${selectedProject === p.name ? 'bg-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/30 border-transparent shadow-none' : 'bg-background hover:bg-muted'}`}>
-                    {p.accessLevel}
-                 </Badge>
+                 <span>All Projects</span>
               </button>
-            ))}
-            {projects.length === 0 && (
-              <p className="text-xs text-muted-foreground px-3 py-2">No projects found.</p>
-            )}
+              
+              {filteredProjects.map((p) => (
+                <button
+                   key={p._id}
+                   onClick={() => handleProjectClick(p.name)}
+                   disabled={isMounted}
+                   className={`w-full text-left px-3 py-2.5 rounded-md transition-all duration-200 text-sm flex auto items-center justify-between outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                     selectedProjects.includes(p.name) ? 'bg-primary text-primary-foreground font-medium shadow-sm' : 'hover:bg-muted/60 text-muted-foreground hover:text-foreground'
+                   } ${(isMounted && !selectedProjects.includes(p.name)) ? 'opacity-40 cursor-not-allowed' : ''}`}
+                >
+                   <span className="truncate mr-3">{p.name}</span>
+                   <Badge variant="secondary" className={`text-[10px] shrink-0 transition-colors ${selectedProjects.includes(p.name) ? 'bg-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/30 border-transparent shadow-none' : 'bg-background hover:bg-muted'}`}>
+                      {p.accessLevel}
+                   </Badge>
+                </button>
+              ))}
+              {filteredProjects.length === 0 && (
+                <p className="text-xs text-muted-foreground px-3 py-2">No projects found.</p>
+              )}
+            </div>
           </div>
         </ScrollArea>
       </div>
@@ -169,19 +198,36 @@ export function MainPage({
         </div>
 
         {/* Configurations & Logs Area */}
-        <div className="flex-1 overflow-y-auto p-6 lg:p-10 flex flex-col gap-8 bg-muted/5">
-          <div className="max-w-3xl w-full mx-auto space-y-8 flex-1 flex flex-col">
+        <div className="flex-1 overflow-hidden p-6 lg:p-10 flex flex-col gap-4 lg:gap-8 bg-muted/5">
+          <div className="max-w-3xl w-full mx-auto space-y-4 lg:space-y-8 flex-1 flex flex-col min-h-0 h-full">
             
             {/* Configuration Card */}
-            <Card className="shrink-0 shadow-sm border-border/60 overflow-hidden text-left bg-card group/card">
-              <CardHeader className="pb-5 pt-6 px-6 bg-card">
+            <Card className="flex flex-col shrink min-h-[150px] shadow-sm border-border/60 overflow-hidden text-left bg-card group/card">
+              <CardHeader className="shrink-0 pb-5 pt-6 px-6 bg-card">
                 <CardTitle className="text-lg">Mount Setup</CardTitle>
-                <CardDescription className="text-sm mt-1.5">
-                  Configure local sync for <strong className="font-semibold text-foreground">{selectedProject === '__all__' ? 'All Projects' : selectedProject}</strong>
+                <CardDescription className="text-sm mt-1.5 flex flex-col gap-2">
+                  <span>Configure local sync for:</span>
+                  <div className="flex flex-col gap-1.5 mt-0.5 max-h-[140px] overflow-y-auto pr-1 custom-scrollbar">
+                    {selectedProjects.length === 0 ? (
+                      <div className="flex items-center gap-2.5 px-3 py-2 rounded-md bg-muted/30 border border-border/40 text-foreground font-medium text-sm shadow-sm transition-colors hover:bg-muted/40">
+                         <Library className="w-4 h-4 text-muted-foreground" />
+                         All Projects
+                      </div>
+                    ) : (
+                      selectedProjects.map((p) => (
+                        <div key={p} className="flex items-center justify-between px-3 py-2 rounded-md bg-background border border-border/50 text-foreground font-medium text-sm shadow-sm transition-colors hover:bg-muted/30">
+                          <div className="flex items-center gap-2.5 overflow-hidden">
+                             <Folder className="w-4 h-4 shrink-0 text-sage/80 fill-sage/10" />
+                             <span className="truncate">{p}</span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </CardDescription>
               </CardHeader>
-              <Separator />
-              <CardContent className="space-y-6 pt-6 px-6 pb-6 bg-card">
+              <Separator className="shrink-0" />
+              <CardContent className="flex-1 overflow-y-auto space-y-6 pt-6 px-6 pb-6 bg-card custom-scrollbar min-h-0">
                 <div className="space-y-2.5">
                   <Label htmlFor="mountpoint" className="text-sm font-medium">Local Mountpoint</Label>
                   <Input
@@ -222,7 +268,7 @@ export function MainPage({
                   </div>
                 )}
               </CardContent>
-              <div className="px-6 py-4 bg-muted/30 border-t border-border/50 flex items-center justify-end gap-3 rounded-b-xl">
+              <div className="shrink-0 px-6 py-4 bg-muted/30 border-t border-border/50 flex items-center justify-end gap-3 rounded-b-xl">
                  {isMounted ? (
                    <>
                      <Button variant="outline" className="shadow-sm" onClick={openMountpoint}>
@@ -246,7 +292,7 @@ export function MainPage({
             </Card>
 
             {/* Logs Area */}
-            <Card className="flex-1 flex flex-col min-h-[220px] shadow-sm border-border/60 overflow-hidden text-left">
+            <Card className="flex-1 flex flex-col min-h-[100px] shadow-sm border-border/60 overflow-hidden text-left">
               <CardHeader className="py-3.5 px-6 flex-row items-center justify-between border-b border-border/50 shrink-0 bg-muted/30">
                 <CardTitle className="text-sm font-medium flex items-center gap-2 text-muted-foreground">
                   <Terminal className="w-4 h-4" />
@@ -257,8 +303,8 @@ export function MainPage({
                 </Button>
               </CardHeader>
               <CardContent className="p-0 flex-1 relative bg-card/50">
-                <ScrollArea className="absolute inset-0 w-full h-full text-left bg-background/30">
-                  <div className="p-5 font-mono text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-all min-h-[220px]">
+                <ScrollArea className="absolute inset-0 w-full h-full text-left bg-background/30 custom-scrollbar">
+                  <div className="p-5 font-mono text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-all min-h-full">
                     {logs.length > 0 ? logs.join('\n') : "No logs available."}
                     <div ref={logEndRef} className="h-4" />
                   </div>

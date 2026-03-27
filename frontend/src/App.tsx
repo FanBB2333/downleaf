@@ -28,8 +28,8 @@ export default function App() {
       setTheme={store.setTheme}
       setFontSize={store.setFontSize}
       refreshProjects={store.refreshProjects}
-      mount={(project, mp, batch) =>
-        store.mount(project === '__all__' ? '' : project, mp, batch)
+      mount={(projects, mp, batch) =>
+        store.mount(projects, mp, batch)
       }
       unmount={store.unmount}
       sync={store.sync}
