@@ -83,6 +83,15 @@ func (a *App) Shutdown(ctx context.Context) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.mounted && a.ofs != nil {
+		if a.zenMode {
+			stats := a.ofs.DirtySummary()
+			if len(stats) > 0 {
+				log.Printf("Syncing %d modified file(s):", len(stats))
+				for _, s := range stats {
+					log.Printf("  %-30s | %5d lines", s.Name, s.Lines)
+				}
+			}
+		}
 		a.ofs.FlushAll()
 		a.ofs.DisconnectAll()
 		dav.Unmount(a.mountpoint)

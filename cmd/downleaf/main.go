@@ -408,7 +408,19 @@ func cmdMount(client *api.Client, addr, mountpoint, projectFilter string, zenMod
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigCh
-		fmt.Println("\nFlushing dirty files...")
+		fmt.Println()
+
+		// In zen mode, show a git-style summary of modified files before flushing
+		if zenMode {
+			stats := ofs.DirtySummary()
+			if len(stats) > 0 {
+				printDirtySummary(stats)
+			} else {
+				fmt.Println("No local changes to sync.")
+			}
+		}
+
+		fmt.Println("Flushing dirty files...")
 		ofs.FlushAll()
 		ofs.DisconnectAll()
 		dav.Unmount(mountpoint)
@@ -439,4 +451,51 @@ func cmdMount(client *api.Client, addr, mountpoint, projectFilter string, zenMod
 
 	fmt.Println("Press Ctrl+C to stop.")
 	select {} // block forever
+}
+
+// printDirtySummary displays a git diff --stat style summary of modified files.
+func printDirtySummary(stats []dav.FileStat) {
+	if len(stats) == 0 {
+		return
+	}
+
+	// Find longest name for alignment
+	maxName := 0
+	maxLines := 0
+	for _, s := range stats {
+		if len(s.Name) > maxName {
+			maxName = len(s.Name)
+		}
+		if s.Lines > maxLines {
+			maxLines = s.Lines
+		}
+	}
+
+	const maxBarWidth = 40
+
+	fmt.Println("Changes to be synced:")
+	fmt.Println()
+
+	totalFiles := len(stats)
+	totalLines := 0
+
+	for _, s := range stats {
+		totalLines += s.Lines
+
+		// Scale bar width relative to the largest file
+		barLen := s.Lines
+		if maxLines > maxBarWidth {
+			barLen = s.Lines * maxBarWidth / maxLines
+		}
+		if barLen < 1 && s.Lines > 0 {
+			barLen = 1
+		}
+
+		bar := strings.Repeat("+", barLen)
+		fmt.Printf(" %-*s | %5d %s\n", maxName, s.Name, s.Lines, bar)
+	}
+
+	fmt.Println()
+	fmt.Printf(" %d file(s) changed, %d lines total\n", totalFiles, totalLines)
+	fmt.Println()
 }

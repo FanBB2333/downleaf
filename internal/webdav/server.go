@@ -242,6 +242,43 @@ func (o *OverleafFS) getMeta(cacheKey string) (fileMeta, bool) {
 	return m, ok
 }
 
+// FileStat describes a single dirty file for summary display.
+type FileStat struct {
+	Name  string
+	Lines int
+	Bytes int
+}
+
+// DirtySummary returns stats for all dirty (locally modified) files.
+func (o *OverleafFS) DirtySummary() []FileStat {
+	var stats []FileStat
+	for _, key := range o.Cache.DirtyKeys() {
+		data, ok := o.Cache.Get(key)
+		if !ok {
+			continue
+		}
+		meta, hasMeta := o.getMeta(key)
+		if !hasMeta {
+			continue
+		}
+		lines := 0
+		if len(data) > 0 {
+			lines = 1
+			for _, b := range data {
+				if b == '\n' {
+					lines++
+				}
+			}
+		}
+		stats = append(stats, FileStat{
+			Name:  meta.name,
+			Lines: lines,
+			Bytes: len(data),
+		})
+	}
+	return stats
+}
+
 // FlushAll uploads all dirty cached files to Overleaf.
 func (o *OverleafFS) FlushAll() (flushed, errors int) {
 	for _, key := range o.Cache.DirtyKeys() {
