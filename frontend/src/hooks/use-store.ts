@@ -16,6 +16,7 @@ import type { gui } from '../../wailsjs/go/models'
 import type { model } from '../../wailsjs/go/models'
 
 export type Theme = 'light' | 'dark' | 'system'
+export type ColorScheme = 'classic' | 'sage' | 'rose' | 'blue' | 'lavender'
 
 function getSystemTheme(): 'light' | 'dark' {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
@@ -24,6 +25,10 @@ function getSystemTheme(): 'light' | 'dark' {
 function applyTheme(theme: Theme) {
   const resolved = theme === 'system' ? getSystemTheme() : theme
   document.documentElement.classList.toggle('dark', resolved === 'dark')
+}
+
+function applyColorScheme(scheme: ColorScheme) {
+  document.documentElement.setAttribute('data-scheme', scheme)
 }
 
 export function useStore() {
@@ -37,6 +42,9 @@ export function useStore() {
   const [theme, setThemeState] = useState<Theme>(() => {
     return (localStorage.getItem('downleaf-theme') as Theme) || 'light'
   })
+  const [colorScheme, setColorSchemeState] = useState<ColorScheme>(() => {
+    return (localStorage.getItem('downleaf-color-scheme') as ColorScheme) || 'classic'
+  })
   const [fontSize, setFontSizeState] = useState(() => {
     return parseInt(localStorage.getItem('downleaf-fontsize') || '14', 10)
   })
@@ -45,6 +53,12 @@ export function useStore() {
     setThemeState(t)
     localStorage.setItem('downleaf-theme', t)
     applyTheme(t)
+  }, [])
+
+  const setColorScheme = useCallback((s: ColorScheme) => {
+    setColorSchemeState(s)
+    localStorage.setItem('downleaf-color-scheme', s)
+    applyColorScheme(s)
   }, [])
 
   const setFontSize = useCallback((s: number) => {
@@ -56,6 +70,7 @@ export function useStore() {
   // Init
   useEffect(() => {
     applyTheme(theme)
+    applyColorScheme(colorScheme)
     document.documentElement.style.fontSize = `${fontSize}px`
 
     GetEnvDefaults().then(setEnvDefaults).catch(() => {})
@@ -174,8 +189,10 @@ export function useStore() {
     error,
     envDefaults,
     theme,
+    colorScheme,
     fontSize,
     setTheme,
+    setColorScheme,
     setFontSize,
     login,
     refreshProjects,

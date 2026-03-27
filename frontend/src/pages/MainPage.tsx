@@ -24,7 +24,7 @@ import {
 import { Slider } from '@/components/ui/slider'
 import type { gui } from '../../wailsjs/go/models'
 import type { model } from '../../wailsjs/go/models'
-import type { Theme } from '@/hooks/use-store'
+import type { Theme, ColorScheme } from '@/hooks/use-store'
 
 /* Shorthand for the drag / no-drag inline style */
 const DRAG: React.CSSProperties = { WebkitAppRegion: 'drag', '--wails-draggable': 'drag' } as React.CSSProperties
@@ -38,8 +38,10 @@ interface MainPageProps {
   loading: string
   error: string
   theme: Theme
+  colorScheme: ColorScheme
   fontSize: number
   setTheme: (t: Theme) => void
+  setColorScheme: (s: ColorScheme) => void
   setFontSize: (s: number) => void
   refreshProjects: () => Promise<void>
   mount: (projects: string[], mountpoint: string, zenMode: boolean) => Promise<void>
@@ -59,8 +61,10 @@ export function MainPage({
   loading,
   error,
   theme,
+  colorScheme,
   fontSize,
   setTheme,
+  setColorScheme,
   setFontSize,
   refreshProjects,
   mount,
@@ -181,7 +185,7 @@ export function MainPage({
                  Mounted
                </Badge>
              )}
-             <SettingsDialog theme={theme} fontSize={fontSize} setTheme={setTheme} setFontSize={setFontSize} />
+             <SettingsDialog theme={theme} colorScheme={colorScheme} fontSize={fontSize} setTheme={setTheme} setColorScheme={setColorScheme} setFontSize={setFontSize} />
 
              <DropdownMenu>
                <DropdownMenuTrigger className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground px-2 py-1.5 rounded-md hover:bg-muted/60 transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -320,15 +324,27 @@ export function MainPage({
 
 /* ===== Settings Dialog ===== */
 
+const COLOR_SCHEMES: { id: ColorScheme; label: string; swatch: [string, string] }[] = [
+  { id: 'classic', label: 'Classic',  swatch: ['#c5bdb4', '#5e544b'] },
+  { id: 'sage',    label: 'Sage',     swatch: ['#a8b5a0', '#6b7c65'] },
+  { id: 'rose',    label: 'Rose',     swatch: ['#c4a4a0', '#9e7a76'] },
+  { id: 'blue',    label: 'Blue',     swatch: ['#8e9aab', '#6a7a8e'] },
+  { id: 'lavender',label: 'Lavender', swatch: ['#b0a4b8', '#8a7a96'] },
+]
+
 function SettingsDialog({
   theme,
+  colorScheme,
   fontSize,
   setTheme,
+  setColorScheme,
   setFontSize,
 }: {
   theme: Theme
+  colorScheme: ColorScheme
   fontSize: number
   setTheme: (t: Theme) => void
+  setColorScheme: (s: ColorScheme) => void
   setFontSize: (s: number) => void
 }) {
   return (
@@ -354,6 +370,30 @@ function SettingsDialog({
                 >
                   {t}
                 </Button>
+              ))}
+            </div>
+          </div>
+
+          <Separator />
+
+          <div className="space-y-3">
+            <Label className="text-sm">Color Scheme</Label>
+            <div className="grid grid-cols-5 gap-2">
+              {COLOR_SCHEMES.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => setColorScheme(s.id)}
+                  className={`flex flex-col items-center gap-1.5 p-2 rounded-lg border-2 transition-all duration-200 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                    colorScheme === s.id
+                      ? 'border-primary bg-muted/60 shadow-sm'
+                      : 'border-transparent hover:bg-muted/40'
+                  }`}
+                >
+                  <div className="w-8 h-8 rounded-full overflow-hidden border border-border/60 shadow-sm" style={{
+                    background: `linear-gradient(135deg, ${s.swatch[0]} 50%, ${s.swatch[1]} 50%)`
+                  }} />
+                  <span className="text-[10px] font-medium text-muted-foreground">{s.label}</span>
+                </button>
               ))}
             </div>
           </div>
