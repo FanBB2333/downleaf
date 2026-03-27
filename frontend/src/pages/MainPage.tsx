@@ -202,8 +202,8 @@ export function MainPage({
         </div>
 
         {/* Configurations & Logs Area */}
-        <div className="flex-1 overflow-hidden p-6 lg:p-10 flex flex-col gap-4 lg:gap-8 bg-muted/5">
-          <div className="max-w-3xl w-full mx-auto space-y-4 lg:space-y-8 flex-1 flex flex-col min-h-0 h-full">
+        <div className="flex-1 overflow-hidden p-4 lg:p-8 flex flex-col bg-muted/5">
+          <div className="max-w-3xl w-full mx-auto gap-3 lg:gap-4 flex-1 flex flex-col min-h-0 h-full">
             
             {/* Configuration Card */}
             <Card className="flex flex-col shrink min-h-[150px] shadow-sm border-border/60 overflow-hidden text-left bg-card group/card">
@@ -296,24 +296,22 @@ export function MainPage({
             </Card>
 
             {/* Logs Area */}
-            <Card className="flex-1 flex flex-col min-h-[100px] shadow-sm border-border/60 overflow-hidden text-left">
-              <CardHeader className="py-3.5 px-6 flex-row items-center justify-between border-b border-border/50 shrink-0 bg-muted/30">
-                <CardTitle className="text-sm font-medium flex items-center gap-2 text-muted-foreground">
-                  <Terminal className="w-4 h-4" />
+            <Card className="p-0 gap-0 flex-1 flex flex-col min-h-[100px] shadow-sm border-border/60 overflow-hidden text-left bg-card">
+              <div className="flex items-center justify-between py-2 px-3 border-b border-border/50 shrink-0 bg-muted/30">
+                <span className="text-xs font-medium flex items-center gap-2 text-muted-foreground">
+                  <Terminal className="w-3.5 h-3.5" />
                   Terminal Logs
-                </CardTitle>
-                <Button variant="ghost" size="sm" className="h-7 text-xs px-2.5 text-muted-foreground hover:text-foreground" onClick={clearLogs}>
+                </span>
+                <Button variant="ghost" size="sm" className="h-6 text-xs px-2 text-muted-foreground hover:text-foreground" onClick={clearLogs}>
                   Clear
                 </Button>
-              </CardHeader>
-              <CardContent className="p-0 flex-1 relative bg-card/50">
-                <ScrollArea className="absolute inset-0 w-full h-full text-left bg-background/30 custom-scrollbar">
-                  <div className="p-5 font-mono text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-all min-h-full">
-                    {logs.length > 0 ? logs.join('\n') : "No logs available."}
-                    <div ref={logEndRef} className="h-4" />
-                  </div>
-                </ScrollArea>
-              </CardContent>
+              </div>
+              <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-card/30">
+                <div className="p-3 font-mono text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-all min-h-full">
+                  {logs.length > 0 ? logs.join('\n') : "No logs available."}
+                  <div ref={logEndRef} className="h-4" />
+                </div>
+              </div>
             </Card>
           </div>
         </div>
