@@ -78,7 +78,7 @@ export function MainPage({
   const [selectedProjects, setSelectedProjects] = useState<string[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [mountpoint, setMountpoint] = useState('~/downleaf')
-  const [zenMode, setZenMode] = useState(false)
+  const [zenMode, setZenMode] = useState(true)
   const logEndRef = useRef<HTMLDivElement>(null)
   const isMounted = mountStatus?.mounted ?? false
 
