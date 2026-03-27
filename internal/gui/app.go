@@ -162,6 +162,10 @@ func (a *App) Mount(projectNames []string, mountpoint string, zenMode bool) erro
 
 	if mountpoint == "" {
 		mountpoint = filepath.Join(os.Getenv("HOME"), "downleaf")
+	} else if mountpoint == "~" {
+		mountpoint = os.Getenv("HOME")
+	} else if strings.HasPrefix(mountpoint, "~/") {
+		mountpoint = filepath.Join(os.Getenv("HOME"), mountpoint[2:])
 	}
 
 	ofs := dav.NewOverleafFS(a.client)
