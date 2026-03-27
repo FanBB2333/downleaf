@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/FanBB2333/downleaf/internal/api"
 	"github.com/FanBB2333/downleaf/internal/auth"
+	"github.com/FanBB2333/downleaf/internal/ignore"
 	"github.com/FanBB2333/downleaf/internal/model"
 	dav "github.com/FanBB2333/downleaf/internal/webdav"
 )
@@ -377,6 +379,14 @@ func cmdMount(client *api.Client, addr, mountpoint, projectFilter string, zenMod
 	if projectFilter != "" {
 		ofs.ProjectFilters = []string{projectFilter}
 	}
+
+	// Load .dlignore from mountpoint directory
+	igMatcher, err := ignore.ParseFile(filepath.Join(mountpoint, ".dlignore"))
+	if err != nil {
+		log.Printf("warning: failed to parse .dlignore: %v", err)
+		igMatcher = ignore.New()
+	}
+	ofs.Ignore = igMatcher
 
 	// Write PID file for sync command
 	os.WriteFile(dav.PIDFile, fmt.Appendf(nil, "%d", os.Getpid()), 0644)

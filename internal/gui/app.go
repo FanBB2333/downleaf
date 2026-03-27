@@ -17,6 +17,7 @@ import (
 
 	"github.com/FanBB2333/downleaf/internal/api"
 	"github.com/FanBB2333/downleaf/internal/auth"
+	"github.com/FanBB2333/downleaf/internal/ignore"
 	"github.com/FanBB2333/downleaf/internal/model"
 	dav "github.com/FanBB2333/downleaf/internal/webdav"
 )
@@ -173,6 +174,14 @@ func (a *App) Mount(projectNames []string, mountpoint string, zenMode bool) erro
 	if len(projectNames) > 0 {
 		ofs.ProjectFilters = projectNames
 	}
+
+	// Load .dlignore from mountpoint directory
+	igMatcher, igErr := ignore.ParseFile(filepath.Join(mountpoint, ".dlignore"))
+	if igErr != nil {
+		log.Printf("warning: failed to parse .dlignore: %v", igErr)
+		igMatcher = ignore.New()
+	}
+	ofs.Ignore = igMatcher
 
 	// Start WebDAV server
 	go func() {

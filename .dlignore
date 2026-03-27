@@ -1,0 +1,13 @@
+# Downleaf ignore rules (gitignore syntax)
+# Files matching these patterns will not be synced to Overleaf.
+
+# OS-generated files
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
+
+# Editor temp files
+*.swp
+*.swo
+*~

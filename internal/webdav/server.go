@@ -20,6 +20,7 @@ import (
 
 	"github.com/FanBB2333/downleaf/internal/api"
 	"github.com/FanBB2333/downleaf/internal/cache"
+	"github.com/FanBB2333/downleaf/internal/ignore"
 	"github.com/FanBB2333/downleaf/internal/model"
 )
 
@@ -43,6 +44,7 @@ type OverleafFS struct {
 	Cache         *cache.Cache
 	ZenMode        bool
 	ProjectFilters []string
+	Ignore         *ignore.Matcher
 
 	projectsMu      sync.RWMutex
 	projects        []model.Project
@@ -251,6 +253,11 @@ func (o *OverleafFS) FlushAll() (flushed, errors int) {
 		if !hasMeta {
 			log.Printf("flush-all: no metadata for %s, skipping", key)
 			errors++
+			continue
+		}
+		if o.isIgnored(meta.name, false) {
+			log.Printf("flush-all: %s ignored by .dlignore, skipping", meta.name)
+			o.Cache.ClearDirty(key)
 			continue
 		}
 		log.Printf("flushing %s (%s)", meta.name, key)
@@ -817,6 +824,11 @@ func (o *OverleafFS) renameTempToReal(oldName, newName string) error {
 
 	// In non-zen mode, upload immediately
 	if !o.ZenMode {
+		if o.isIgnored(target.entityName(), false) {
+			log.Printf("skipping upload of %s (ignored by .dlignore)", target.entityName())
+			o.Cache.ClearDirty(realCacheKey)
+			return nil
+		}
 		log.Printf("uploading %s to Overleaf", target.entityName())
 		if err := o.Client.UploadFile(target.project.ID, folderID, target.entityName(), data); err != nil {
 			log.Printf("upload %s: %v", target.entityName(), err)
@@ -1005,6 +1017,12 @@ func (f *regularFile) Close() error {
 		return nil
 	}
 
+	if f.ofs.isIgnored(f.name, false) {
+		log.Printf("skipping upload of %s (ignored by .dlignore)", f.name)
+		f.ofs.Cache.ClearDirty(cacheKey)
+		return nil
+	}
+
 	log.Printf("uploading %s to Overleaf", f.name)
 	if err := f.ofs.Client.UploadFile(f.projectID, f.folderID, f.name, f.content); err != nil {
 		log.Printf("upload %s: %v", f.name, err)
@@ -1017,6 +1035,14 @@ func (f *regularFile) Close() error {
 // ==========================================================================
 // Helpers
 // ==========================================================================
+
+// isIgnored checks whether a filename should be skipped during sync.
+func (o *OverleafFS) isIgnored(name string, isDir bool) bool {
+	if o.Ignore == nil {
+		return false
+	}
+	return o.Ignore.Match(name, isDir)
+}
 
 func sanitizeName(name string) string {
 	return strings.ReplaceAll(name, "/", "_")
