@@ -177,6 +177,14 @@ export function useStore() {
     }
   }, [])
 
+  const logout = useCallback(() => {
+    setLoginStatus(null)
+    setProjects([])
+    setMountStatus(null)
+    setLogs([])
+    setError('')
+  }, [])
+
   const clearLogs = useCallback(() => setLogs([]), [])
   const clearError = useCallback(() => setError(''), [])
 
@@ -200,6 +208,7 @@ export function useStore() {
     unmount,
     sync,
     openMountpoint,
+    logout,
     clearLogs,
     clearError,
   }

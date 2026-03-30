@@ -38,7 +38,7 @@ export default function App() {
       openMountpoint={store.openMountpoint}
       clearLogs={store.clearLogs}
       clearError={store.clearError}
-      onLogout={() => window.location.reload()}
+      onLogout={store.logout}
     />
   )
 }
