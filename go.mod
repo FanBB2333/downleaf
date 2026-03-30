@@ -7,6 +7,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/wailsapp/wails/v2 v2.11.0
 	golang.org/x/net v0.52.0
+	golang.org/x/sync v0.20.0
 )
 
 require (

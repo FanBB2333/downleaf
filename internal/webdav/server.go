@@ -2,7 +2,6 @@ package webdav
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"io/fs"
 	"log"
@@ -17,6 +16,7 @@ import (
 	"time"
 
 	gowebdav "golang.org/x/net/webdav"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/FanBB2333/downleaf/internal/api"
 	"github.com/FanBB2333/downleaf/internal/cache"
@@ -38,10 +38,23 @@ type resolveEntry struct {
 	fetchedAt time.Time
 }
 
+type treeEntry struct {
+	folder       *model.Folder
+	doc          *model.Doc
+	fileRef      *model.FileRef
+	parentFolder *model.Folder
+}
+
+type projectTreeState struct {
+	meta    *model.ProjectMeta
+	root    *model.Folder
+	entries map[string]treeEntry
+}
+
 // OverleafFS implements gowebdav.FileSystem backed by Overleaf.
 type OverleafFS struct {
-	Client        *api.Client
-	Cache         *cache.Cache
+	Client         *api.Client
+	Cache          *cache.Cache
 	ZenMode        bool
 	ProjectFilters []string
 	Ignore         *ignore.Matcher
@@ -52,18 +65,22 @@ type OverleafFS struct {
 
 	sioMu   sync.Mutex
 	sioConn map[string]*api.SocketIOClient
-	trees   map[string]*model.ProjectMeta
+	trees   map[string]*projectTreeState
 
 	metaMu  sync.RWMutex
 	metaMap map[string]fileMeta
 
 	resolveMu    sync.RWMutex
 	resolveCache map[string]*resolveEntry
+
+	treeFlight    singleflight.Group
+	projectFlight singleflight.Group
 }
 
 const (
-	resolveTTL  = 30 * time.Second
-	projectsTTL = 60 * time.Second
+	resolveTTL    = 2 * time.Minute
+	resolveNegTTL = 5 * time.Second
+	projectsTTL   = 5 * time.Minute
 )
 
 func NewOverleafFS(client *api.Client) *OverleafFS {
@@ -71,7 +88,7 @@ func NewOverleafFS(client *api.Client) *OverleafFS {
 		Client:       client,
 		Cache:        cache.New(5 * time.Minute),
 		sioConn:      make(map[string]*api.SocketIOClient),
-		trees:        make(map[string]*model.ProjectMeta),
+		trees:        make(map[string]*projectTreeState),
 		metaMap:      make(map[string]fileMeta),
 		resolveCache: make(map[string]*resolveEntry),
 	}
@@ -96,17 +113,28 @@ func (o *OverleafFS) refreshProjectsIfStale() error {
 	if fresh {
 		return nil
 	}
-	return o.refreshProjects()
+	_, err, _ := o.projectFlight.Do("projects", func() (any, error) {
+		return nil, o.refreshProjects()
+	})
+	return err
 }
 
-// resolveWithCache wraps resolve() with a short-TTL cache for both positive and negative results.
+// resolveWithCache wraps resolve() with a TTL cache for both positive and negative results.
+// Positive results (file/dir found) use resolveTTL; negative results (not found) use the
+// shorter resolveNegTTL so that newly created files appear quickly.
 func (o *OverleafFS) resolveWithCache(name string) (*pathInfo, error) {
 	key := path.Clean(strings.TrimPrefix(name, "/"))
 
 	o.resolveMu.RLock()
-	if entry, ok := o.resolveCache[key]; ok && time.Since(entry.fetchedAt) < resolveTTL {
-		o.resolveMu.RUnlock()
-		return entry.info, entry.err
+	if entry, ok := o.resolveCache[key]; ok {
+		ttl := resolveTTL
+		if entry.err != nil {
+			ttl = resolveNegTTL
+		}
+		if time.Since(entry.fetchedAt) < ttl {
+			o.resolveMu.RUnlock()
+			return entry.info, entry.err
+		}
 	}
 	o.resolveMu.RUnlock()
 
@@ -175,24 +203,154 @@ func (o *OverleafFS) findProjectByName(name string) (model.Project, bool) {
 	return model.Project{}, false
 }
 
-func (o *OverleafFS) getProjectTree(projectID string) (*model.ProjectMeta, error) {
+func buildProjectTreeState(meta *model.ProjectMeta) *projectTreeState {
+	state := &projectTreeState{
+		meta:    meta,
+		entries: make(map[string]treeEntry),
+	}
+	if meta == nil || len(meta.RootFolder) == 0 {
+		return state
+	}
+
+	state.root = &meta.RootFolder[0]
+	state.entries[""] = treeEntry{folder: state.root}
+	indexFolderEntries(state, state.root, "")
+	return state
+}
+
+func indexFolderEntries(state *projectTreeState, folder *model.Folder, prefix string) {
+	for i := range folder.Folders {
+		child := &folder.Folders[i]
+		key := joinTreePath(prefix, sanitizeName(child.Name))
+		state.entries[key] = treeEntry{
+			folder:       child,
+			parentFolder: folder,
+		}
+		indexFolderEntries(state, child, key)
+	}
+
+	for i := range folder.Docs {
+		doc := &folder.Docs[i]
+		key := joinTreePath(prefix, sanitizeName(doc.Name))
+		state.entries[key] = treeEntry{
+			doc:          doc,
+			parentFolder: folder,
+		}
+	}
+
+	for i := range folder.FileRefs {
+		ref := &folder.FileRefs[i]
+		key := joinTreePath(prefix, sanitizeName(ref.Name))
+		state.entries[key] = treeEntry{
+			fileRef:      ref,
+			parentFolder: folder,
+		}
+	}
+}
+
+func joinTreePath(prefix, name string) string {
+	if prefix == "" {
+		return name
+	}
+	return prefix + "/" + name
+}
+
+func (o *OverleafFS) cacheProjectTree(projectID string, state *projectTreeState) *projectTreeState {
 	o.sioMu.Lock()
 	defer o.sioMu.Unlock()
+	if existing, ok := o.trees[projectID]; ok {
+		return existing
+	}
+	o.trees[projectID] = state
+	return state
+}
+
+func (o *OverleafFS) getProjectTree(projectID string) (*projectTreeState, error) {
+	o.sioMu.Lock()
 	if tree, ok := o.trees[projectID]; ok {
+		o.sioMu.Unlock()
 		return tree, nil
 	}
-	// Fetch project editor page to get fresh CSRF token for this project
+	o.sioMu.Unlock()
+
+	// singleflight ensures that concurrent PROPFIND requests for the same
+	// project only trigger one HTTP/socket call; the rest wait and share the result.
+	val, err, _ := o.treeFlight.Do(projectID, func() (any, error) {
+		// Double-check after winning the flight — another goroutine may have
+		// populated the cache while we were waiting.
+		o.sioMu.Lock()
+		if tree, ok := o.trees[projectID]; ok {
+			o.sioMu.Unlock()
+			return tree, nil
+		}
+		o.sioMu.Unlock()
+
+		// Prefer the editor page metadata for path lookup. This avoids opening a
+		// Socket.IO session for metadata-only requests such as stat/cd/autocomplete.
+		if detail, err := o.Client.GetProjectDetail(projectID); err == nil {
+			if len(detail.Project.RootFolder) > 0 {
+				return o.cacheProjectTree(projectID, buildProjectTreeState(&detail.Project)), nil
+			}
+		} else {
+			log.Printf("warning: could not refresh CSRF token for project %s: %v", projectID, err)
+		}
+
+		sio := api.NewSocketIOClient(o.Client.SiteURL, o.Client.Identity)
+		tree, err := sio.JoinProject(projectID)
+		if err != nil {
+			return nil, err
+		}
+
+		state := buildProjectTreeState(tree)
+
+		o.sioMu.Lock()
+		if _, ok := o.sioConn[projectID]; ok {
+			o.sioMu.Unlock()
+			sio.Disconnect()
+			return o.cacheProjectTree(projectID, state), nil
+		}
+		o.sioConn[projectID] = sio
+		o.trees[projectID] = state
+		o.sioMu.Unlock()
+		return state, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return val.(*projectTreeState), nil
+}
+
+func (o *OverleafFS) ensureProjectSocket(projectID string) (*api.SocketIOClient, error) {
+	o.sioMu.Lock()
+	if sio, ok := o.sioConn[projectID]; ok {
+		o.sioMu.Unlock()
+		return sio, nil
+	}
+	o.sioMu.Unlock()
+
+	// Refresh the project page before opening a Socket.IO session so writes keep
+	// using the most recent CSRF token for this project.
 	if _, err := o.Client.GetProjectDetail(projectID); err != nil {
 		log.Printf("warning: could not refresh CSRF token for project %s: %v", projectID, err)
 	}
+
 	sio := api.NewSocketIOClient(o.Client.SiteURL, o.Client.Identity)
 	tree, err := sio.JoinProject(projectID)
 	if err != nil {
 		return nil, err
 	}
+	state := buildProjectTreeState(tree)
+
+	o.sioMu.Lock()
+	if existing, ok := o.sioConn[projectID]; ok {
+		o.sioMu.Unlock()
+		sio.Disconnect()
+		return existing, nil
+	}
 	o.sioConn[projectID] = sio
-	o.trees[projectID] = tree
-	return tree, nil
+	o.trees[projectID] = state
+	o.sioMu.Unlock()
+	return sio, nil
 }
 
 func (o *OverleafFS) invalidateTree(projectID string) {
@@ -215,11 +373,9 @@ func (o *OverleafFS) invalidateTree(projectID string) {
 }
 
 func (o *OverleafFS) getDocContent(projectID, docID string) ([]byte, error) {
-	o.sioMu.Lock()
-	sio, ok := o.sioConn[projectID]
-	o.sioMu.Unlock()
-	if !ok {
-		return nil, fmt.Errorf("no socket.io connection for project %s", projectID)
+	sio, err := o.ensureProjectSocket(projectID)
+	if err != nil {
+		return nil, err
 	}
 	content, _, err := sio.JoinDoc(projectID, docID)
 	if err != nil {
@@ -404,59 +560,27 @@ func (o *OverleafFS) resolve(name string) (*pathInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(tree.RootFolder) == 0 {
+	if tree.root == nil {
 		return nil, os.ErrNotExist
 	}
 
 	// Just the project root
 	if len(parts) == 1 {
-		return &pathInfo{project: project, folder: &tree.RootFolder[0]}, nil
+		return &pathInfo{project: project, folder: tree.root}, nil
 	}
 
-	// Navigate into the project tree
-	folder := &tree.RootFolder[0]
-	for i := 1; i < len(parts); i++ {
-		target := parts[i]
-		isLast := i == len(parts)-1
-
-		// Look for subfolder
-		found := false
-		for j := range folder.Folders {
-			if sanitizeName(folder.Folders[j].Name) == target {
-				if isLast {
-					return &pathInfo{project: project, folder: &folder.Folders[j], parentFolder: folder}, nil
-				}
-				folder = &folder.Folders[j]
-				found = true
-				break
-			}
-		}
-		if found {
-			continue
-		}
-
-		if !isLast {
-			return nil, os.ErrNotExist
-		}
-
-		// Look for doc
-		for j := range folder.Docs {
-			if sanitizeName(folder.Docs[j].Name) == target {
-				return &pathInfo{project: project, doc: &folder.Docs[j], parentFolder: folder}, nil
-			}
-		}
-
-		// Look for file ref
-		for j := range folder.FileRefs {
-			if sanitizeName(folder.FileRefs[j].Name) == target {
-				return &pathInfo{project: project, fileRef: &folder.FileRefs[j], parentFolder: folder}, nil
-			}
-		}
-
+	entry, ok := tree.entries[strings.Join(parts[1:], "/")]
+	if !ok {
 		return nil, os.ErrNotExist
 	}
 
-	return nil, os.ErrNotExist
+	return &pathInfo{
+		project:      project,
+		folder:       entry.folder,
+		doc:          entry.doc,
+		fileRef:      entry.fileRef,
+		parentFolder: entry.parentFolder,
+	}, nil
 }
 
 // ==========================================================================
@@ -716,7 +840,7 @@ func (o *OverleafFS) createFile(name string) (gowebdav.File, error) {
 		if err != nil {
 			return nil, err
 		}
-		entityID = findDocID(tree, base)
+		entityID = findDocID(tree.meta, base)
 	} else {
 		if err := o.Client.UploadFile(parent.project.ID, parent.folder.ID, base, []byte{}); err != nil {
 			return nil, err
@@ -726,7 +850,7 @@ func (o *OverleafFS) createFile(name string) (gowebdav.File, error) {
 		if err != nil {
 			return nil, err
 		}
-		entityID = findFileRefID(tree, base)
+		entityID = findFileRefID(tree.meta, base)
 	}
 
 	if entityID == "" {
@@ -925,11 +1049,11 @@ type fileInfo struct {
 	modTime time.Time
 }
 
-func (fi *fileInfo) Name() string      { return fi.name }
-func (fi *fileInfo) Size() int64       { return fi.size }
+func (fi *fileInfo) Name() string       { return fi.name }
+func (fi *fileInfo) Size() int64        { return fi.size }
 func (fi *fileInfo) ModTime() time.Time { return fi.modTime }
-func (fi *fileInfo) IsDir() bool       { return fi.dir }
-func (fi *fileInfo) Sys() any          { return nil }
+func (fi *fileInfo) IsDir() bool        { return fi.dir }
+func (fi *fileInfo) Sys() any           { return nil }
 func (fi *fileInfo) Mode() os.FileMode {
 	if fi.dir {
 		return 0755 | os.ModeDir
@@ -947,10 +1071,10 @@ type dirFile struct {
 	pos     int
 }
 
-func (d *dirFile) Close() error                             { return nil }
-func (d *dirFile) Read([]byte) (int, error)                 { return 0, os.ErrInvalid }
-func (d *dirFile) Write([]byte) (int, error)                { return 0, os.ErrInvalid }
-func (d *dirFile) Stat() (fs.FileInfo, error)               { return d.info, nil }
+func (d *dirFile) Close() error               { return nil }
+func (d *dirFile) Read([]byte) (int, error)   { return 0, os.ErrInvalid }
+func (d *dirFile) Write([]byte) (int, error)  { return 0, os.ErrInvalid }
+func (d *dirFile) Stat() (fs.FileInfo, error) { return d.info, nil }
 func (d *dirFile) Seek(offset int64, whence int) (int64, error) {
 	if offset == 0 && whence == io.SeekStart {
 		d.pos = 0
@@ -993,8 +1117,8 @@ type regularFile struct {
 	tempFile  bool
 }
 
-func (f *regularFile) Stat() (fs.FileInfo, error)               { return f.info, nil }
-func (f *regularFile) Readdir(int) ([]fs.FileInfo, error)       { return nil, os.ErrInvalid }
+func (f *regularFile) Stat() (fs.FileInfo, error)         { return f.info, nil }
+func (f *regularFile) Readdir(int) ([]fs.FileInfo, error) { return nil, os.ErrInvalid }
 
 func (f *regularFile) Read(p []byte) (int, error) {
 	if f.readPos >= int64(len(f.content)) {
@@ -1169,7 +1293,7 @@ func Serve(addr string, ofs *OverleafFS) error {
 		LockSystem: gowebdav.NewMemLS(),
 		Logger: func(r *http.Request, err error) {
 			if err != nil {
-				if os.IsNotExist(err) && isNoiseRequest(r.URL.Path) {
+				if os.IsNotExist(err) && (r.Method == "PROPFIND" || isNoiseRequest(r.URL.Path)) {
 					return
 				}
 				log.Printf("WebDAV %s %s: %v", r.Method, r.URL.Path, err)
