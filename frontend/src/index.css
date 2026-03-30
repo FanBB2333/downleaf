@@ -408,8 +408,3 @@
 .dark ::-webkit-scrollbar-thumb {
   background: var(--color-morandi-700);
 }
-
-/* Wails window drag region */
-[data-wails-drag] {
-  --wails-draggable: drag;
-}

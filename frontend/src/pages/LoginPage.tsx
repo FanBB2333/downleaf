@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
+import { useWindowDrag } from '@/hooks/use-window-drag'
 
 interface LoginPageProps {
   envDefaults: Record<string, string>
@@ -15,6 +16,7 @@ export function LoginPage({ envDefaults, loading, onLogin }: LoginPageProps) {
   const [site, setSite] = useState(envDefaults.site || 'https://www.overleaf.com')
   const [cookies, setCookies] = useState(envDefaults.cookies || '')
   const [err, setErr] = useState('')
+  const onDragMouseDown = useWindowDrag()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -33,7 +35,7 @@ export function LoginPage({ envDefaults, loading, onLogin }: LoginPageProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Drag region — fills the macOS titlebar inset area */}
-      <div className="h-8 shrink-0" style={{ WebkitAppRegion: 'drag', '--wails-draggable': 'drag' } as React.CSSProperties} />
+      <div className="h-8 shrink-0 cursor-default relative z-10" onMouseDown={onDragMouseDown} />
 
       <div className="flex-1 flex items-center justify-center px-4 -mt-8">
         <Card className="w-full max-w-lg">

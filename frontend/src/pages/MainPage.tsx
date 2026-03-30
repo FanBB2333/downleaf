@@ -22,13 +22,10 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Slider } from '@/components/ui/slider'
+import { useWindowDrag } from '@/hooks/use-window-drag'
 import type { gui } from '../../wailsjs/go/models'
 import type { model } from '../../wailsjs/go/models'
 import type { Theme, ColorScheme } from '@/hooks/use-store'
-
-/* Shorthand for the drag / no-drag inline style */
-const DRAG: React.CSSProperties = { WebkitAppRegion: 'drag', '--wails-draggable': 'drag' } as React.CSSProperties
-const NO_DRAG: React.CSSProperties = { WebkitAppRegion: 'no-drag', '--wails-draggable': 'no-drag' } as React.CSSProperties
 
 interface MainPageProps {
   loginStatus: gui.LoginStatus
@@ -81,6 +78,7 @@ export function MainPage({
   const [zenMode, setZenMode] = useState(true)
   const logEndRef = useRef<HTMLDivElement>(null)
   const isMounted = mountStatus?.mounted ?? false
+  const onDragMouseDown = useWindowDrag()
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -112,7 +110,7 @@ export function MainPage({
     <div className="flex h-full bg-background overflow-hidden">
       {/* ===== Left Sidebar ===== */}
       <div className="w-[280px] shrink-0 border-r bg-muted/10 flex flex-col h-full z-10 relative">
-        <div style={DRAG} className="h-12 border-b border-border/50 flex items-center px-4 pl-[78px] shrink-0 bg-background/60 backdrop-blur-md">
+        <div onMouseDown={onDragMouseDown} className="h-12 border-b border-border/50 flex items-center px-4 pl-[78px] shrink-0 bg-background/60 backdrop-blur-md cursor-default">
           <div className="flex items-center gap-2.5">
             <span className="text-sm font-semibold tracking-tight">Downleaf</span>
             <Badge variant="secondary" className="text-[10px] font-normal px-1.5 py-0 bg-muted/60">
@@ -177,8 +175,8 @@ export function MainPage({
       {/* ===== Right Main Content ===== */}
       <div className="flex-1 flex flex-col min-w-0 h-full relative">
         {/* Main Content Header (Drag region) */}
-        <div className="h-12 border-b border-border/50 flex items-center justify-end px-4 shrink-0 bg-background/60 backdrop-blur-md z-10" style={DRAG}>
-          <div className="flex items-center gap-1.5" style={NO_DRAG}>
+        <div className="h-12 border-b border-border/50 flex items-center justify-end px-4 shrink-0 bg-background/60 backdrop-blur-md z-10 cursor-default" onMouseDown={onDragMouseDown}>
+          <div className="flex items-center gap-1.5">
              {isMounted && mountStatus && (
                <Badge variant="outline" className="gap-1.5 text-[11px] font-normal border-sage/40 text-sage mr-2 h-6 px-2 shadow-sm">
                  <span className="w-1.5 h-1.5 rounded-full bg-sage inline-block animate-pulse-slow" />
