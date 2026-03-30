@@ -28,6 +28,7 @@ import type { model } from '../../wailsjs/go/models'
 import type { Theme, ColorScheme } from '@/hooks/use-store'
 
 interface MainPageProps {
+  version: string
   loginStatus: gui.LoginStatus
   mountStatus: gui.MountStatus | null
   projects: model.Project[]
@@ -51,6 +52,7 @@ interface MainPageProps {
 }
 
 export function MainPage({
+  version,
   loginStatus,
   mountStatus,
   projects,
@@ -114,7 +116,7 @@ export function MainPage({
           <div className="flex items-center gap-2.5">
             <span className="text-sm font-semibold tracking-tight">Downleaf</span>
             <Badge variant="secondary" className="text-[10px] font-normal px-1.5 py-0 bg-muted/60">
-              v0.2.0
+              {version}
             </Badge>
           </div>
         </div>

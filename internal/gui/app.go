@@ -19,6 +19,7 @@ import (
 	"github.com/FanBB2333/downleaf/internal/auth"
 	"github.com/FanBB2333/downleaf/internal/ignore"
 	"github.com/FanBB2333/downleaf/internal/model"
+	"github.com/FanBB2333/downleaf/internal/version"
 	dav "github.com/FanBB2333/downleaf/internal/webdav"
 )
 
@@ -124,6 +125,11 @@ func (a *App) Login(siteURL, cookies string) (*LoginStatus, error) {
 
 	log.Printf("Authenticated as %s", identity.Email)
 	return &LoginStatus{LoggedIn: true, Email: identity.Email, SiteURL: siteURL}, nil
+}
+
+// GetVersion returns the application version.
+func (a *App) GetVersion() string {
+	return version.Version
 }
 
 // GetLoginStatus returns current login state.

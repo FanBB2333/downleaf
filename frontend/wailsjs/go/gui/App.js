@@ -14,6 +14,10 @@ export function GetLogs() {
   return window['go']['gui']['App']['GetLogs']();
 }
 
+export function GetVersion() {
+  return window['go']['gui']['App']['GetVersion']();
+}
+
 export function GetMountStatus() {
   return window['go']['gui']['App']['GetMountStatus']();
 }

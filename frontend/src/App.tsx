@@ -17,6 +17,7 @@ export default function App() {
 
   return (
     <MainPage
+      version={store.version}
       loginStatus={store.loginStatus}
       mountStatus={store.mountStatus}
       projects={store.projects}

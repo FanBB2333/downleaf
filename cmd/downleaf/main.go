@@ -17,13 +17,9 @@ import (
 	"github.com/FanBB2333/downleaf/internal/auth"
 	"github.com/FanBB2333/downleaf/internal/ignore"
 	"github.com/FanBB2333/downleaf/internal/model"
+	"github.com/FanBB2333/downleaf/internal/version"
 	dav "github.com/FanBB2333/downleaf/internal/webdav"
 )
-
-// Version can be overridden at build time via:
-//
-//	go build -ldflags "-X main.Version=v0.1.0"
-var Version = "v0.2.0"
 
 func main() {
 	if err := run(); err != nil {
@@ -50,7 +46,7 @@ func run() error {
 	}
 
 	if cmd == "version" || cmd == "--version" || cmd == "-v" {
-		fmt.Printf("downleaf %s\n", Version)
+		fmt.Printf("downleaf %s\n", version.Version)
 		return nil
 	}
 
@@ -144,7 +140,7 @@ func run() error {
 }
 
 func printUsage() {
-	fmt.Printf("downleaf %s\n", Version)
+	fmt.Printf("downleaf %s\n", version.Version)
 	fmt.Println()
 	fmt.Println("Usage: downleaf <command> [args]")
 	fmt.Println()

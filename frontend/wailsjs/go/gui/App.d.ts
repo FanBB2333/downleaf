@@ -9,6 +9,8 @@ export function GetLoginStatus():Promise<gui.LoginStatus>;
 
 export function GetLogs():Promise<Array<string>>;
 
+export function GetVersion():Promise<string>;
+
 export function GetMountStatus():Promise<gui.MountStatus>;
 
 export function ListProjects():Promise<Array<model.Project>>;

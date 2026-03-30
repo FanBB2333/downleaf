@@ -5,6 +5,7 @@ import {
   GetMountStatus,
   GetLogs,
   GetEnvDefaults,
+  GetVersion,
   Login,
   ListProjects,
   Mount,
@@ -38,6 +39,7 @@ export function useStore() {
   const [logs, setLogs] = useState<string[]>([])
   const [loading, setLoading] = useState('')
   const [error, setError] = useState('')
+  const [version, setVersion] = useState('')
   const [envDefaults, setEnvDefaults] = useState<Record<string, string>>({})
   const [theme, setThemeState] = useState<Theme>(() => {
     return (localStorage.getItem('downleaf-theme') as Theme) || 'light'
@@ -73,6 +75,7 @@ export function useStore() {
     applyColorScheme(colorScheme)
     document.documentElement.style.fontSize = `${fontSize}px`
 
+    GetVersion().then(setVersion).catch(() => {})
     GetEnvDefaults().then(setEnvDefaults).catch(() => {})
     GetLoginStatus().then((s) => {
       if (s.loggedIn) {
@@ -189,6 +192,7 @@ export function useStore() {
   const clearError = useCallback(() => setError(''), [])
 
   return {
+    version,
     loginStatus,
     mountStatus,
     projects,
