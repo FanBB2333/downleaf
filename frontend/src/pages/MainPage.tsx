@@ -114,7 +114,7 @@ export function MainPage({
           <div className="flex items-center gap-2.5">
             <span className="text-sm font-semibold tracking-tight">Downleaf</span>
             <Badge variant="secondary" className="text-[10px] font-normal px-1.5 py-0 bg-muted/60">
-              v0.1.0
+              v0.2.0
             </Badge>
           </div>
         </div>
