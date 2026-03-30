@@ -9,12 +9,11 @@ import { WindowGetPosition, WindowSetPosition } from '../../wailsjs/runtime/runt
  */
 export function useWindowDrag() {
   const dragging = useRef(false)
+  const rafId = useRef(0)
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
-    // Only respond to left button
     if (e.button !== 0) return
 
-    // Don't drag if user clicked an interactive element
     const target = e.target as HTMLElement
     if (target.closest('button, a, input, select, textarea, [role="button"], [data-no-drag]')) {
       return
@@ -26,29 +25,33 @@ export function useWindowDrag() {
     const startScreenX = e.screenX
     const startScreenY = e.screenY
 
-    let startWinX = 0
-    let startWinY = 0
-
+    // Get the current window position before attaching move listeners
     WindowGetPosition().then((pos) => {
-      startWinX = pos.x
-      startWinY = pos.y
-    })
-
-    const onMouseMove = (ev: MouseEvent) => {
       if (!dragging.current) return
-      const dx = ev.screenX - startScreenX
-      const dy = ev.screenY - startScreenY
-      WindowSetPosition(startWinX + dx, startWinY + dy)
-    }
 
-    const onMouseUp = () => {
-      dragging.current = false
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup', onMouseUp)
-    }
+      const startWinX = pos.x
+      const startWinY = pos.y
 
-    document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseup', onMouseUp)
+      const onMouseMove = (ev: MouseEvent) => {
+        if (!dragging.current) return
+        cancelAnimationFrame(rafId.current)
+        rafId.current = requestAnimationFrame(() => {
+          const dx = ev.screenX - startScreenX
+          const dy = ev.screenY - startScreenY
+          WindowSetPosition(startWinX + dx, startWinY + dy)
+        })
+      }
+
+      const onMouseUp = () => {
+        dragging.current = false
+        cancelAnimationFrame(rafId.current)
+        document.removeEventListener('mousemove', onMouseMove)
+        document.removeEventListener('mouseup', onMouseUp)
+      }
+
+      document.addEventListener('mousemove', onMouseMove)
+      document.addEventListener('mouseup', onMouseUp)
+    })
   }, [])
 
   return onMouseDown
