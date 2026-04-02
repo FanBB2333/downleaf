@@ -10,7 +10,12 @@ export default function App() {
       <LoginPage
         envDefaults={store.envDefaults}
         loading={store.loading}
+        browserLoginSupported={store.browserLoginSupported}
+        savedCredentials={store.savedCredentials}
         onLogin={store.login}
+        onLoginWithBrowser={store.loginWithBrowser}
+        onLoginWithCredential={store.loginWithCredential}
+        onDeleteCredential={store.deleteCredential}
       />
     )
   }

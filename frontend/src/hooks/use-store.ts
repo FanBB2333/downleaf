@@ -12,8 +12,13 @@ import {
   Unmount,
   Sync,
   OpenMountpoint,
+  IsBrowserLoginSupported,
+  ListCredentials,
+  LoginWithBrowser,
+  LoginWithCredential,
+  DeleteCredential,
 } from '../../wailsjs/go/gui/App'
-import type { gui } from '../../wailsjs/go/models'
+import type { gui, credential } from '../../wailsjs/go/models'
 import type { model } from '../../wailsjs/go/models'
 
 export type Theme = 'light' | 'dark' | 'system'
@@ -41,6 +46,8 @@ export function useStore() {
   const [error, setError] = useState('')
   const [version, setVersion] = useState('')
   const [envDefaults, setEnvDefaults] = useState<Record<string, string>>({})
+  const [browserLoginSupported, setBrowserLoginSupported] = useState(false)
+  const [savedCredentials, setSavedCredentials] = useState<credential.CredentialInfo[]>([])
   const [theme, setThemeState] = useState<Theme>(() => {
     return (localStorage.getItem('downleaf-theme') as Theme) || 'light'
   })
@@ -77,6 +84,8 @@ export function useStore() {
 
     GetVersion().then(setVersion).catch(() => {})
     GetEnvDefaults().then(setEnvDefaults).catch(() => {})
+    IsBrowserLoginSupported().then(setBrowserLoginSupported).catch(() => {})
+    ListCredentials().then((creds) => setSavedCredentials(creds || [])).catch(() => {})
     GetLoginStatus().then((s) => {
       if (s.loggedIn) {
         setLoginStatus(s)
@@ -117,11 +126,60 @@ export function useStore() {
       const p = await ListProjects()
       setProjects(p || [])
       await GetMountStatus().then(setMountStatus)
+      // Refresh credentials list after manual login
+      ListCredentials().then((creds) => setSavedCredentials(creds || [])).catch(() => {})
     } catch (e: unknown) {
       setError(String(e))
       throw e
     } finally {
       setLoading('')
+    }
+  }, [])
+
+  const loginWithBrowser = useCallback(async (site: string) => {
+    setLoading('browser-login')
+    setError('')
+    try {
+      const s = await LoginWithBrowser(site)
+      setLoginStatus(s)
+      const p = await ListProjects()
+      setProjects(p || [])
+      await GetMountStatus().then(setMountStatus)
+      // Refresh credentials list
+      ListCredentials().then((creds) => setSavedCredentials(creds || [])).catch(() => {})
+    } catch (e: unknown) {
+      setError(String(e))
+      throw e
+    } finally {
+      setLoading('')
+    }
+  }, [])
+
+  const loginWithCredential = useCallback(async (id: string) => {
+    setLoading('credential-login')
+    setError('')
+    try {
+      const s = await LoginWithCredential(id)
+      setLoginStatus(s)
+      const p = await ListProjects()
+      setProjects(p || [])
+      await GetMountStatus().then(setMountStatus)
+      // Refresh credentials list to update lastUsedAt
+      ListCredentials().then((creds) => setSavedCredentials(creds || [])).catch(() => {})
+    } catch (e: unknown) {
+      setError(String(e))
+      throw e
+    } finally {
+      setLoading('')
+    }
+  }, [])
+
+  const deleteCredential = useCallback(async (id: string) => {
+    try {
+      await DeleteCredential(id)
+      setSavedCredentials((prev) => prev.filter((c) => c.id !== id))
+    } catch (e: unknown) {
+      setError(String(e))
     }
   }, [])
 
@@ -200,6 +258,8 @@ export function useStore() {
     loading,
     error,
     envDefaults,
+    browserLoginSupported,
+    savedCredentials,
     theme,
     colorScheme,
     fontSize,
@@ -207,6 +267,9 @@ export function useStore() {
     setColorScheme,
     setFontSize,
     login,
+    loginWithBrowser,
+    loginWithCredential,
+    deleteCredential,
     refreshProjects,
     mount,
     unmount,

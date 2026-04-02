@@ -223,6 +223,9 @@ export function MainPage({
                  {loginStatus.email}
                </DropdownMenuTrigger>
                <DropdownMenuContent align="end" className="w-48">
+                 <DropdownMenuItem onClick={onLogout} className="cursor-pointer">
+                   Switch Account
+                 </DropdownMenuItem>
                  <DropdownMenuItem onClick={onLogout} className="text-destructive focus:text-destructive focus:bg-destructive/10 cursor-pointer">
                    Log out
                  </DropdownMenuItem>

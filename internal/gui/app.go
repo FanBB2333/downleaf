@@ -11,12 +11,14 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/joho/godotenv"
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"github.com/FanBB2333/downleaf/internal/api"
 	"github.com/FanBB2333/downleaf/internal/auth"
+	"github.com/FanBB2333/downleaf/internal/credential"
 	"github.com/FanBB2333/downleaf/internal/ignore"
 	"github.com/FanBB2333/downleaf/internal/model"
 	"github.com/FanBB2333/downleaf/internal/version"
@@ -54,6 +56,8 @@ type App struct {
 	addr       string
 	projects   []string // project filters (names or empty for all)
 
+	credStore *credential.Store // credential storage
+
 	logMu  sync.Mutex
 	logBuf []string
 }
@@ -76,6 +80,14 @@ func (a *App) Startup(ctx context.Context) {
 	// Try to load .env defaults
 	if err := godotenv.Load(); err == nil {
 		a.siteURL = os.Getenv("SITE")
+	}
+
+	// Initialize credential store
+	store, err := credential.NewStore()
+	if err != nil {
+		log.Printf("Warning: failed to initialize credential store: %v", err)
+	} else {
+		a.credStore = store
 	}
 }
 
@@ -327,4 +339,119 @@ func (w *logWriter) Write(p []byte) (int, error) {
 	// Also write to stderr for debugging
 	_, _ = io.WriteString(os.Stderr, line+"\n")
 	return len(p), nil
+}
+
+// ============================================================================
+// Credential Management Methods
+// ============================================================================
+
+// IsBrowserLoginSupported returns true if browser login is available on this platform.
+func (a *App) IsBrowserLoginSupported() bool {
+	return auth.IsBrowserLoginSupported()
+}
+
+// LoginWithBrowser opens a native browser window for Overleaf login.
+// On success, saves the credential and returns login status.
+func (a *App) LoginWithBrowser(siteURL string) (*LoginStatus, error) {
+	siteURL = strings.TrimRight(siteURL, "/")
+
+	log.Printf("Opening browser login for %s...", siteURL)
+
+	// Open browser and capture cookies
+	cookies, err := auth.BrowserLogin(siteURL)
+	if err != nil {
+		return nil, fmt.Errorf("browser login failed: %w", err)
+	}
+
+	log.Printf("Browser login successful, validating cookies...")
+
+	// Validate cookies and extract identity
+	identity, err := auth.LoginWithCookies(siteURL, cookies)
+	if err != nil {
+		return nil, fmt.Errorf("cookie validation failed: %w", err)
+	}
+
+	// Save credential
+	if a.credStore != nil {
+		cred := &credential.Credential{
+			ID:         credential.GenerateID(siteURL, identity.Email),
+			SiteURL:    siteURL,
+			Email:      identity.Email,
+			UserID:     identity.UserID,
+			Cookies:    cookies,
+			CSRFToken:  identity.CSRFToken,
+			CreatedAt:  time.Now(),
+			LastUsedAt: time.Now(),
+		}
+		if err := a.credStore.Save(cred); err != nil {
+			log.Printf("Warning: failed to save credential: %v", err)
+		} else {
+			log.Printf("Credential saved for %s", identity.Email)
+		}
+	}
+
+	// Update app state
+	a.mu.Lock()
+	a.identity = identity
+	a.siteURL = siteURL
+	a.client = api.NewClient(siteURL, identity)
+	a.mu.Unlock()
+
+	log.Printf("Authenticated as %s", identity.Email)
+	return &LoginStatus{LoggedIn: true, Email: identity.Email, SiteURL: siteURL}, nil
+}
+
+// ListCredentials returns summaries of all saved credentials.
+func (a *App) ListCredentials() ([]credential.CredentialInfo, error) {
+	if a.credStore == nil {
+		return nil, fmt.Errorf("credential store not initialized")
+	}
+	return a.credStore.List()
+}
+
+// LoginWithCredential loads a saved credential and logs in.
+func (a *App) LoginWithCredential(id string) (*LoginStatus, error) {
+	if a.credStore == nil {
+		return nil, fmt.Errorf("credential store not initialized")
+	}
+
+	cred, err := a.credStore.Load(id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load credential: %w", err)
+	}
+
+	log.Printf("Logging in with saved credential for %s...", cred.Email)
+
+	// Validate cookies still work
+	identity, err := auth.LoginWithCookies(cred.SiteURL, cred.Cookies)
+	if err != nil {
+		return nil, fmt.Errorf("session expired, please login again: %w", err)
+	}
+
+	// Update last used time
+	if err := a.credStore.UpdateLastUsed(id); err != nil {
+		log.Printf("Warning: failed to update last used time: %v", err)
+	}
+
+	// Update app state
+	a.mu.Lock()
+	a.identity = identity
+	a.siteURL = cred.SiteURL
+	a.client = api.NewClient(cred.SiteURL, identity)
+	a.mu.Unlock()
+
+	log.Printf("Authenticated as %s", identity.Email)
+	return &LoginStatus{LoggedIn: true, Email: identity.Email, SiteURL: cred.SiteURL}, nil
+}
+
+// DeleteCredential removes a saved credential.
+func (a *App) DeleteCredential(id string) error {
+	if a.credStore == nil {
+		return fmt.Errorf("credential store not initialized")
+	}
+	if err := a.credStore.Delete(id); err != nil {
+		return fmt.Errorf("failed to delete credential: %w", err)
+	}
+	log.Printf("Credential deleted: %s", id)
+	return nil
 }
