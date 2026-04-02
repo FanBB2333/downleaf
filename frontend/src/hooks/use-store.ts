@@ -8,6 +8,7 @@ import {
   GetVersion,
   Login,
   ListProjects,
+  ListTags,
   Mount,
   Unmount,
   Sync,
@@ -41,6 +42,7 @@ export function useStore() {
   const [loginStatus, setLoginStatus] = useState<gui.LoginStatus | null>(null)
   const [mountStatus, setMountStatus] = useState<gui.MountStatus | null>(null)
   const [projects, setProjects] = useState<model.Project[]>([])
+  const [tags, setTags] = useState<model.Tag[]>([])
   const [logs, setLogs] = useState<string[]>([])
   const [loading, setLoading] = useState('')
   const [error, setError] = useState('')
@@ -90,6 +92,7 @@ export function useStore() {
       if (s.loggedIn) {
         setLoginStatus(s)
         ListProjects().then(setProjects).catch(() => {})
+        ListTags().then(t => setTags(t || [])).catch(() => {})
       }
     }).catch(() => {})
     GetMountStatus().then(setMountStatus).catch(() => {})
@@ -123,8 +126,9 @@ export function useStore() {
     try {
       const s = await Login(site, cookies)
       setLoginStatus(s)
-      const p = await ListProjects()
+      const [p, t] = await Promise.all([ListProjects(), ListTags()])
       setProjects(p || [])
+      setTags(t || [])
       await GetMountStatus().then(setMountStatus)
       // Refresh credentials list after manual login
       ListCredentials().then((creds) => setSavedCredentials(creds || [])).catch(() => {})
@@ -142,8 +146,9 @@ export function useStore() {
     try {
       const s = await LoginWithBrowser(site)
       setLoginStatus(s)
-      const p = await ListProjects()
+      const [p, t] = await Promise.all([ListProjects(), ListTags()])
       setProjects(p || [])
+      setTags(t || [])
       await GetMountStatus().then(setMountStatus)
       // Refresh credentials list
       ListCredentials().then((creds) => setSavedCredentials(creds || [])).catch(() => {})
@@ -161,8 +166,9 @@ export function useStore() {
     try {
       const s = await LoginWithCredential(id)
       setLoginStatus(s)
-      const p = await ListProjects()
+      const [p, t] = await Promise.all([ListProjects(), ListTags()])
       setProjects(p || [])
+      setTags(t || [])
       await GetMountStatus().then(setMountStatus)
       // Refresh credentials list to update lastUsedAt
       ListCredentials().then((creds) => setSavedCredentials(creds || [])).catch(() => {})
@@ -185,8 +191,9 @@ export function useStore() {
 
   const refreshProjects = useCallback(async () => {
     try {
-      const p = await ListProjects()
+      const [p, t] = await Promise.all([ListProjects(), ListTags()])
       setProjects(p || [])
+      setTags(t || [])
     } catch (e: unknown) {
       setError(String(e))
     }
@@ -254,6 +261,7 @@ export function useStore() {
     loginStatus,
     mountStatus,
     projects,
+    tags,
     logs,
     loading,
     error,

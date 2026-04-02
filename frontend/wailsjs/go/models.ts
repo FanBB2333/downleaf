@@ -109,6 +109,22 @@ export namespace model {
 	        this.rootDoc_id = source["rootDoc_id"];
 	    }
 	}
+	export class Tag {
+	    _id: string;
+	    name: string;
+	    project_ids: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Tag(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this._id = source["_id"];
+	        this.name = source["name"];
+	        this.project_ids = source["project_ids"];
+	    }
+	}
 
 }
 

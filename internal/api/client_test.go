@@ -74,3 +74,40 @@ func TestUploadFileIncludesNameField(t *testing.T) {
 		t.Fatalf("UploadFile: %v", err)
 	}
 }
+
+func TestListTags(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/tag" {
+			t.Fatalf("path = %q, want /tag", r.URL.Path)
+		}
+		if r.Method != http.MethodGet {
+			t.Fatalf("method = %q, want GET", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `[{"_id":"tag1","name":"Research","project_ids":["p1","p2"]},{"_id":"tag2","name":"Course","project_ids":["p3"]}]`)
+	}))
+	defer server.Close()
+
+	client := &Client{
+		SiteURL:    server.URL,
+		Identity:   &auth.Identity{Cookies: "test=1"},
+		HTTPClient: server.Client(),
+	}
+
+	tags, err := client.ListTags()
+	if err != nil {
+		t.Fatalf("ListTags() error: %v", err)
+	}
+	if len(tags) != 2 {
+		t.Fatalf("got %d tags, want 2", len(tags))
+	}
+	if tags[0].Name != "Research" {
+		t.Fatalf("tags[0].Name = %q, want Research", tags[0].Name)
+	}
+	if len(tags[0].ProjectIDs) != 2 {
+		t.Fatalf("tags[0].ProjectIDs len = %d, want 2", len(tags[0].ProjectIDs))
+	}
+	if tags[1].Name != "Course" {
+		t.Fatalf("tags[1].Name = %q, want Course", tags[1].Name)
+	}
+}

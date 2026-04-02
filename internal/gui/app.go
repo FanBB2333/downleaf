@@ -176,6 +176,18 @@ func (a *App) ListProjects() ([]model.Project, error) {
 	return active, nil
 }
 
+// ListTags returns all tags for the authenticated user.
+func (a *App) ListTags() ([]model.Tag, error) {
+	a.mu.Lock()
+	client := a.client
+	a.mu.Unlock()
+	if client == nil {
+		return nil, fmt.Errorf("not logged in")
+	}
+
+	return client.ListTags()
+}
+
 // Mount starts the WebDAV server and mounts the filesystem.
 func (a *App) Mount(projectNames []string, mountpoint string, zenMode bool) error {
 	a.mu.Lock()

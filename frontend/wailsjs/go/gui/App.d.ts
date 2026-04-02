@@ -22,6 +22,8 @@ export function ListCredentials():Promise<Array<credential.CredentialInfo>>;
 
 export function ListProjects():Promise<Array<model.Project>>;
 
+export function ListTags():Promise<Array<model.Tag>>;
+
 export function Login(arg1:string,arg2:string):Promise<gui.LoginStatus>;
 
 export function LoginWithBrowser(arg1:string):Promise<gui.LoginStatus>;

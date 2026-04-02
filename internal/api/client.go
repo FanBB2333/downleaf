@@ -89,6 +89,21 @@ func (c *Client) ListProjects() ([]model.Project, error) {
 	return resp.Projects, nil
 }
 
+// ListTags returns all tags for the authenticated user.
+func (c *Client) ListTags() ([]model.Tag, error) {
+	req, err := c.request("GET", "/tag", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var tags []model.Tag
+	if err := c.doJSON(req, &tags); err != nil {
+		return nil, fmt.Errorf("list tags: %w", err)
+	}
+
+	return tags, nil
+}
+
 // GetProjectEntities returns the flat file tree for a project.
 func (c *Client) GetProjectEntities(projectID string) ([]model.Entity, error) {
 	req, err := c.request("GET", "/project/"+projectID+"/entities", nil)

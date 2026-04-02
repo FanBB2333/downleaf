@@ -32,6 +32,7 @@ interface MainPageProps {
   loginStatus: gui.LoginStatus
   mountStatus: gui.MountStatus | null
   projects: model.Project[]
+  tags: model.Tag[]
   logs: string[]
   loading: string
   error: string
@@ -56,6 +57,7 @@ export function MainPage({
   loginStatus,
   mountStatus,
   projects,
+  tags,
   logs,
   loading,
   error,
@@ -75,6 +77,10 @@ export function MainPage({
   onLogout,
 }: MainPageProps) {
   const [selectedProjects, setSelectedProjects] = useState<string[]>([])
+  const [selectedTags, setSelectedTags] = useState<string[]>([])
+  const [viewMode, setViewMode] = useState<'flat' | 'grouped'>(() => {
+    return (localStorage.getItem('downleaf-view-mode') as 'flat' | 'grouped') || 'flat'
+  })
   const [searchQuery, setSearchQuery] = useState('')
   const [mountpoint, setMountpoint] = useState('~/downleaf')
   const [zenMode, setZenMode] = useState(true)
@@ -136,7 +142,44 @@ export function MainPage({
     await mount(selectedProjects, mountpoint, zenMode)
   }
 
-  const filteredProjects = projects.filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
+  const toggleViewMode = () => {
+    setViewMode(prev => {
+      const next = prev === 'flat' ? 'grouped' : 'flat'
+      localStorage.setItem('downleaf-view-mode', next)
+      return next
+    })
+  }
+
+  const filteredProjects = projects.filter(p => {
+    const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase())
+    if (!matchesSearch) return false
+    if (selectedTags.length === 0) return true
+    return selectedTags.some(tagId =>
+      tags.find(t => t._id === tagId)?.project_ids?.includes(p._id)
+    )
+  })
+
+  const groupedProjects = viewMode === 'grouped'
+    ? (() => {
+        const groups: { name: string; id: string; projects: model.Project[] }[] = []
+        const taggedIds = new Set<string>()
+
+        for (const tag of tags) {
+          const tagProjects = filteredProjects.filter(p => tag.project_ids?.includes(p._id))
+          if (tagProjects.length > 0) {
+            groups.push({ name: tag.name, id: tag._id, projects: tagProjects })
+            tagProjects.forEach(p => taggedIds.add(p._id))
+          }
+        }
+
+        const untagged = filteredProjects.filter(p => !taggedIds.has(p._id))
+        if (untagged.length > 0) {
+          groups.push({ name: 'Untagged', id: '__untagged__', projects: untagged })
+        }
+
+        return groups
+      })()
+    : []
 
   return (
     <div className="flex h-full bg-background overflow-hidden">
@@ -170,32 +213,100 @@ export function MainPage({
                 disabled={isMounted}
               />
             </div>
-            <div className="space-y-0.5">
-              <button
-                 onClick={() => handleProjectClick('__all__')}
-                 disabled={isMounted}
-                 className={`w-full text-left px-3 py-2 rounded-md transition-all duration-200 text-sm flex items-center justify-between outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                   selectedProjects.length === 0 ? 'bg-primary text-primary-foreground font-medium shadow-sm' : 'hover:bg-muted/60 text-muted-foreground hover:text-foreground'
-                 } ${(isMounted && selectedProjects.length > 0) ? 'opacity-40 cursor-not-allowed' : ''}`}
-              >
-                 <span>All Projects</span>
-              </button>
-              
-              {filteredProjects.map((p) => (
+
+            {/* Tag filters */}
+            {tags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
                 <button
-                   key={p._id}
-                   onClick={() => handleProjectClick(p.name)}
-                   disabled={isMounted}
-                   className={`w-full text-left px-3 py-2.5 rounded-md transition-all duration-200 text-sm flex auto items-center justify-between outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                     selectedProjects.includes(p.name) ? 'bg-primary text-primary-foreground font-medium shadow-sm' : 'hover:bg-muted/60 text-muted-foreground hover:text-foreground'
-                   } ${(isMounted && !selectedProjects.includes(p.name)) ? 'opacity-40 cursor-not-allowed' : ''}`}
+                  onClick={() => setSelectedTags([])}
+                  disabled={isMounted}
+                  className={`text-[11px] px-2 py-0.5 rounded-full transition-all ${
+                    selectedTags.length === 0
+                      ? 'bg-primary text-primary-foreground font-medium'
+                      : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}
                 >
-                   <span className="truncate mr-3">{p.name}</span>
-                   <Badge variant="secondary" className={`text-[10px] shrink-0 transition-colors ${selectedProjects.includes(p.name) ? 'bg-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/30 border-transparent shadow-none' : 'bg-background hover:bg-muted'}`}>
-                      {p.accessLevel}
-                   </Badge>
+                  All
                 </button>
-              ))}
+                {tags.map(tag => (
+                  <button
+                    key={tag._id}
+                    onClick={() => {
+                      if (isMounted) return
+                      setSelectedTags(prev =>
+                        prev.includes(tag._id)
+                          ? prev.filter(id => id !== tag._id)
+                          : [...prev, tag._id]
+                      )
+                    }}
+                    disabled={isMounted}
+                    className={`text-[11px] px-2 py-0.5 rounded-full transition-all ${
+                      selectedTags.includes(tag._id)
+                        ? 'bg-primary text-primary-foreground font-medium'
+                        : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
+                    }`}
+                  >
+                    {tag.name}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* View mode toggle */}
+            {tags.length > 0 && (
+              <div className="flex justify-end mb-1">
+                <button
+                  onClick={toggleViewMode}
+                  className="text-[10px] text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-muted/60"
+                  title={viewMode === 'flat' ? 'Switch to grouped view' : 'Switch to flat view'}
+                >
+                  {viewMode === 'flat' ? 'Group by tag' : 'Flat list'}
+                </button>
+              </div>
+            )}
+
+            <div className="space-y-0.5">
+              {viewMode === 'flat' ? (
+                <>
+                  <button
+                    onClick={() => handleProjectClick('__all__')}
+                    disabled={isMounted}
+                    className={`w-full text-left px-3 py-2 rounded-md transition-all duration-200 text-sm flex items-center justify-between outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                      selectedProjects.length === 0 ? 'bg-primary text-primary-foreground font-medium shadow-sm' : 'hover:bg-muted/60 text-muted-foreground hover:text-foreground'
+                    } ${(isMounted && selectedProjects.length > 0) ? 'opacity-40 cursor-not-allowed' : ''}`}
+                  >
+                    <span>All Projects</span>
+                  </button>
+
+                  {filteredProjects.map((p) => (
+                    <ProjectButton key={p._id} project={p} selected={selectedProjects.includes(p.name)} disabled={isMounted && !selectedProjects.includes(p.name)} onClick={() => handleProjectClick(p.name)} isMounted={isMounted} />
+                  ))}
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => handleProjectClick('__all__')}
+                    disabled={isMounted}
+                    className={`w-full text-left px-3 py-2 rounded-md transition-all duration-200 text-sm flex items-center justify-between outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                      selectedProjects.length === 0 ? 'bg-primary text-primary-foreground font-medium shadow-sm' : 'hover:bg-muted/60 text-muted-foreground hover:text-foreground'
+                    } ${(isMounted && selectedProjects.length > 0) ? 'opacity-40 cursor-not-allowed' : ''}`}
+                  >
+                    <span>All Projects</span>
+                  </button>
+
+                  {groupedProjects.map(group => (
+                    <GroupSection
+                      key={group.id}
+                      name={group.name}
+                      projects={group.projects}
+                      selectedProjects={selectedProjects}
+                      isMounted={isMounted}
+                      onProjectClick={handleProjectClick}
+                    />
+                  ))}
+                </>
+              )}
+
               {filteredProjects.length === 0 && (
                 <p className="text-xs text-muted-foreground px-3 py-2">No projects found.</p>
               )}
@@ -355,6 +466,76 @@ export function MainPage({
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+/* ===== Project Button ===== */
+
+function ProjectButton({ project: p, selected, disabled, onClick, isMounted }: {
+  project: model.Project
+  selected: boolean
+  disabled: boolean
+  onClick: () => void
+  isMounted: boolean
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={isMounted}
+      className={`w-full text-left px-3 py-2.5 rounded-md transition-all duration-200 text-sm flex auto items-center justify-between outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+        selected ? 'bg-primary text-primary-foreground font-medium shadow-sm' : 'hover:bg-muted/60 text-muted-foreground hover:text-foreground'
+      } ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+    >
+      <span className="truncate mr-3">{p.name}</span>
+      <Badge variant="secondary" className={`text-[10px] shrink-0 transition-colors ${selected ? 'bg-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/30 border-transparent shadow-none' : 'bg-background hover:bg-muted'}`}>
+        {p.accessLevel}
+      </Badge>
+    </button>
+  )
+}
+
+/* ===== Group Section (for grouped view) ===== */
+
+function GroupSection({
+  name,
+  projects,
+  selectedProjects,
+  isMounted,
+  onProjectClick,
+}: {
+  name: string
+  projects: model.Project[]
+  selectedProjects: string[]
+  isMounted: boolean
+  onProjectClick: (name: string) => void
+}) {
+  const [collapsed, setCollapsed] = useState(false)
+
+  return (
+    <div className="mt-2">
+      <button
+        onClick={() => setCollapsed(prev => !prev)}
+        className="w-full flex items-center gap-1.5 px-2 py-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors rounded hover:bg-muted/40"
+      >
+        <span className={`transition-transform duration-200 text-[9px] ${collapsed ? '' : 'rotate-90'}`}>&#9654;</span>
+        {name}
+        <span className="text-[10px] font-normal ml-auto opacity-60">{projects.length}</span>
+      </button>
+      {!collapsed && (
+        <div className="space-y-0.5 mt-0.5">
+          {projects.map((p) => (
+            <ProjectButton
+              key={p._id}
+              project={p}
+              selected={selectedProjects.includes(p.name)}
+              disabled={isMounted && !selectedProjects.includes(p.name)}
+              onClick={() => onProjectClick(p.name)}
+              isMounted={isMounted}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

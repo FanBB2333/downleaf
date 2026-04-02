@@ -15,6 +15,13 @@ type Project struct {
 	RootFolderID  string `json:"-"`
 }
 
+// Tag represents an Overleaf tag (label) that groups projects.
+type Tag struct {
+	ID         string   `json:"_id"`
+	Name       string   `json:"name"`
+	ProjectIDs []string `json:"project_ids"`
+}
+
 // Folder represents a folder in the project file tree.
 type Folder struct {
 	ID       string    `json:"_id"`

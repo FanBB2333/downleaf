@@ -26,6 +26,7 @@ export default function App() {
       loginStatus={store.loginStatus}
       mountStatus={store.mountStatus}
       projects={store.projects}
+      tags={store.tags}
       logs={store.logs}
       loading={store.loading}
       error={store.error}

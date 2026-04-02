@@ -38,6 +38,10 @@ export function ListProjects() {
   return window['go']['gui']['App']['ListProjects']();
 }
 
+export function ListTags() {
+  return window['go']['gui']['App']['ListTags']();
+}
+
 export function Login(arg1, arg2) {
   return window['go']['gui']['App']['Login'](arg1, arg2);
 }
