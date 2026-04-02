@@ -9,6 +9,7 @@ package auth
 
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
+#import <objc/runtime.h>
 
 // Result structure passed back to Go
 typedef struct {
@@ -19,18 +20,41 @@ typedef struct {
 // Forward declaration
 BrowserLoginResult runBrowserLogin(const char* siteURL, const char* loginPath, const char* successPath, int timeoutSeconds);
 
+static const void* kLoginDelegateKey = &kLoginDelegateKey;
+static const void* kWindowDelegateKey = &kWindowDelegateKey;
+
 // Delegate to monitor navigation and extract cookies
-@interface LoginDelegate : NSObject <WKNavigationDelegate>
+@interface LoginDelegate : NSObject <WKNavigationDelegate, WKUIDelegate>
 @property (nonatomic, strong) NSString* siteURL;
 @property (nonatomic, strong) NSString* successPath;
-@property (nonatomic, strong) NSString* cookies;
-@property (nonatomic, strong) NSString* errorMsg;
 @property (nonatomic, assign) BOOL completed;
 @property (nonatomic, strong) NSWindow* window;
 @property (nonatomic, strong) WKWebView* webView;
+@property (nonatomic, assign) BrowserLoginResult* result;
+@property (nonatomic, strong) id semaphore;
+- (void)finishWithCookies:(NSString*)cookies error:(NSString*)errorMsg;
 @end
 
 @implementation LoginDelegate
+
+- (void)finishWithCookies:(NSString*)cookies error:(NSString*)errorMsg {
+    if (self.completed) return;
+
+    self.completed = YES;
+
+    if (errorMsg != nil) {
+        self.result->error = strdup([errorMsg UTF8String]);
+    } else if (cookies != nil) {
+        self.result->cookies = strdup([cookies UTF8String]);
+    } else {
+        self.result->error = strdup("Unknown error: no cookies captured");
+    }
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self.window close];
+    });
+    dispatch_semaphore_signal((dispatch_semaphore_t)self.semaphore);
+}
 
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
     NSURL* url = webView.URL;
@@ -57,37 +81,34 @@ BrowserLoginResult runBrowserLogin(const char* siteURL, const char* loginPath, c
                 }
             }
 
-            self.cookies = [parts componentsJoinedByString:@"; "];
-            self.completed = YES;
-
-            // Close window on main thread
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [self.window close];
-                [NSApp stopModal];
-            });
+            [self finishWithCookies:[parts componentsJoinedByString:@"; "] error:nil];
         }];
     }
 }
 
 - (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error {
-    self.errorMsg = [error localizedDescription];
-    self.completed = YES;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [self.window close];
-        [NSApp stopModal];
-    });
+    [self finishWithCookies:nil error:[error localizedDescription]];
 }
 
 - (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error {
     // Ignore cancellation errors (happen during redirects)
     if (error.code == NSURLErrorCancelled) return;
 
-    self.errorMsg = [error localizedDescription];
-    self.completed = YES;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [self.window close];
-        [NSApp stopModal];
-    });
+    [self finishWithCookies:nil error:[error localizedDescription]];
+}
+
+- (nullable WKWebView *)webView:(WKWebView *)webView
+    createWebViewWithConfiguration:(WKWebViewConfiguration *)configuration
+    forNavigationAction:(WKNavigationAction *)navigationAction
+    windowFeatures:(WKWindowFeatures *)windowFeatures {
+    if (!navigationAction.targetFrame || !navigationAction.targetFrame.isMainFrame) {
+        [webView loadRequest:navigationAction.request];
+    }
+    return nil;
+}
+
+- (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView {
+    [self finishWithCookies:nil error:@"Web content process terminated unexpectedly"];
 }
 
 @end
@@ -100,90 +121,89 @@ BrowserLoginResult runBrowserLogin(const char* siteURL, const char* loginPath, c
 @implementation WindowCloseDelegate
 - (BOOL)windowShouldClose:(NSWindow *)sender {
     if (!self.loginDelegate.completed) {
-        self.loginDelegate.errorMsg = @"Login cancelled by user";
-        self.loginDelegate.completed = YES;
+        [self.loginDelegate finishWithCookies:nil error:@"Login cancelled by user"];
     }
-    [NSApp stopModal];
     return YES;
 }
 @end
 
 BrowserLoginResult runBrowserLogin(const char* siteURL, const char* loginPath, const char* successPath, int timeoutSeconds) {
-    BrowserLoginResult result = {NULL, NULL};
+    __block BrowserLoginResult result = {NULL, NULL};
+    dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+    __block NSWindow* window = nil;
 
-    @autoreleasepool {
-        // Ensure we have an NSApplication
-        [NSApplication sharedApplication];
-        [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+    dispatch_sync(dispatch_get_main_queue(), ^{
+        @autoreleasepool {
+            [NSApplication sharedApplication];
 
-        NSString* siteURLStr = [NSString stringWithUTF8String:siteURL];
-        NSString* loginPathStr = [NSString stringWithUTF8String:loginPath];
-        NSString* successPathStr = [NSString stringWithUTF8String:successPath];
+            NSString* siteURLStr = [NSString stringWithUTF8String:siteURL];
+            NSString* loginPathStr = [NSString stringWithUTF8String:loginPath];
+            NSString* successPathStr = [NSString stringWithUTF8String:successPath];
 
-        // Create window
-        NSRect frame = NSMakeRect(0, 0, 800, 600);
-        NSWindow* window = [[NSWindow alloc] initWithContentRect:frame
-                                                       styleMask:(NSWindowStyleMaskTitled |
-                                                                 NSWindowStyleMaskClosable |
-                                                                 NSWindowStyleMaskResizable)
-                                                         backing:NSBackingStoreBuffered
-                                                           defer:NO];
-        [window setTitle:@"Login to Overleaf"];
-        [window center];
+            NSRect frame = NSMakeRect(0, 0, 980, 760);
+            window = [[NSWindow alloc] initWithContentRect:frame
+                                                 styleMask:(NSWindowStyleMaskTitled |
+                                                           NSWindowStyleMaskClosable |
+                                                           NSWindowStyleMaskResizable |
+                                                           NSWindowStyleMaskMiniaturizable)
+                                                   backing:NSBackingStoreBuffered
+                                                     defer:NO];
+            [window setTitle:@"Login to Overleaf"];
+            [window center];
+            [window setReleasedWhenClosed:NO];
 
-        // Create WKWebView with persistent data store to handle cookies properly
-        WKWebViewConfiguration* config = [[WKWebViewConfiguration alloc] init];
-        config.websiteDataStore = [WKWebsiteDataStore defaultDataStore];
+            NSView* contentView = [[NSView alloc] initWithFrame:[[window contentView] bounds]];
+            [contentView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+            [window setContentView:contentView];
 
-        WKWebView* webView = [[WKWebView alloc] initWithFrame:frame configuration:config];
-        [window setContentView:webView];
+            WKWebViewConfiguration* config = [[WKWebViewConfiguration alloc] init];
+            config.websiteDataStore = [WKWebsiteDataStore defaultDataStore];
 
-        // Set up delegate
-        LoginDelegate* delegate = [[LoginDelegate alloc] init];
-        delegate.siteURL = siteURLStr;
-        delegate.successPath = successPathStr;
-        delegate.completed = NO;
-        delegate.window = window;
-        delegate.webView = webView;
-        webView.navigationDelegate = delegate;
+            WKWebView* webView = [[WKWebView alloc] initWithFrame:[contentView bounds] configuration:config];
+            [webView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+            [contentView addSubview:webView];
 
-        // Window close delegate
-        WindowCloseDelegate* windowDelegate = [[WindowCloseDelegate alloc] init];
-        windowDelegate.loginDelegate = delegate;
-        window.delegate = windowDelegate;
+            LoginDelegate* delegate = [[LoginDelegate alloc] init];
+            delegate.siteURL = siteURLStr;
+            delegate.successPath = successPathStr;
+            delegate.completed = NO;
+            delegate.window = window;
+            delegate.webView = webView;
+            delegate.result = &result;
+            delegate.semaphore = semaphore;
+            webView.navigationDelegate = delegate;
+            webView.UIDelegate = delegate;
 
-        // Load login URL
-        NSString* fullURL = [siteURLStr stringByAppendingString:loginPathStr];
-        NSURL* url = [NSURL URLWithString:fullURL];
-        NSURLRequest* request = [NSURLRequest requestWithURL:url];
-        [webView loadRequest:request];
+            WindowCloseDelegate* windowDelegate = [[WindowCloseDelegate alloc] init];
+            windowDelegate.loginDelegate = delegate;
+            window.delegate = windowDelegate;
 
-        // Show window
-        [window makeKeyAndOrderFront:nil];
-        [NSApp activateIgnoringOtherApps:YES];
+            objc_setAssociatedObject(window, kLoginDelegateKey, delegate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(window, kWindowDelegateKey, windowDelegate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
-        // Run modal with timeout
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeoutSeconds * NSEC_PER_SEC)),
-                      dispatch_get_main_queue(), ^{
-            if (!delegate.completed) {
-                delegate.errorMsg = @"Login timed out";
-                delegate.completed = YES;
-                [window close];
-                [NSApp stopModal];
-            }
-        });
+            NSString* fullURL = [siteURLStr stringByAppendingString:loginPathStr];
+            NSURL* url = [NSURL URLWithString:fullURL];
+            NSURLRequest* request = [NSURLRequest requestWithURL:url];
+            [webView loadRequest:request];
 
-        [NSApp runModalForWindow:window];
+            [window makeKeyAndOrderFront:nil];
+            [NSApp activateIgnoringOtherApps:YES];
 
-        // Collect result
-        if (delegate.errorMsg) {
-            result.error = strdup([delegate.errorMsg UTF8String]);
-        } else if (delegate.cookies) {
-            result.cookies = strdup([delegate.cookies UTF8String]);
-        } else {
-            result.error = strdup("Unknown error: no cookies captured");
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeoutSeconds * NSEC_PER_SEC)),
+                          dispatch_get_main_queue(), ^{
+                [delegate finishWithCookies:nil error:@"Login timed out"];
+            });
         }
-    }
+    });
+
+    dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
+
+    dispatch_sync(dispatch_get_main_queue(), ^{
+        if (window != nil) {
+            objc_setAssociatedObject(window, kLoginDelegateKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(window, kWindowDelegateKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+    });
 
     return result;
 }
@@ -192,7 +212,6 @@ import "C"
 
 import (
 	"errors"
-	"runtime"
 	"unsafe"
 )
 
@@ -220,10 +239,6 @@ func BrowserLogin(siteURL string) (string, error) {
 
 // BrowserLoginWithOptions allows customizing login/success paths and timeout.
 func BrowserLoginWithOptions(siteURL, loginPath, successPath string, timeoutSeconds int) (string, error) {
-	// Ensure we run on the main thread (required by AppKit)
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
 	cSiteURL := C.CString(siteURL)
 	cLoginPath := C.CString(loginPath)
 	cSuccessPath := C.CString(successPath)
