@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { RotateCw, Terminal, Search, Folder, Library } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -78,9 +78,39 @@ export function MainPage({
   const [searchQuery, setSearchQuery] = useState('')
   const [mountpoint, setMountpoint] = useState('~/downleaf')
   const [zenMode, setZenMode] = useState(true)
+  const [logPanelHeight, setLogPanelHeight] = useState(200)
   const logEndRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const isDraggingRef = useRef(false)
   const isMounted = mountStatus?.mounted ?? false
   const onDragMouseDown = useWindowDrag()
+
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    isDraggingRef.current = true
+    const startY = e.clientY
+    const startHeight = logPanelHeight
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!isDraggingRef.current) return
+      const delta = startY - ev.clientY
+      const newHeight = Math.max(80, Math.min(startHeight + delta, (containerRef.current?.clientHeight ?? 600) - 200))
+      setLogPanelHeight(newHeight)
+    }
+
+    const onMouseUp = () => {
+      isDraggingRef.current = false
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+
+    document.body.style.cursor = 'row-resize'
+    document.body.style.userSelect = 'none'
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+  }, [logPanelHeight])
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -202,7 +232,7 @@ export function MainPage({
         </div>
 
         {/* Configurations & Logs Area */}
-        <div className="flex-1 overflow-hidden p-4 lg:p-8 flex flex-col bg-muted/5">
+        <div ref={containerRef} className="flex-1 overflow-hidden p-4 lg:p-8 flex flex-col bg-muted/5">
           <div className="max-w-3xl w-full mx-auto gap-3 lg:gap-4 flex-1 flex flex-col min-h-0 h-full">
             
             {/* Configuration Card */}
@@ -295,8 +325,14 @@ export function MainPage({
               </div>
             </Card>
 
+            {/* Resize Handle */}
+            <div
+              onMouseDown={handleResizeMouseDown}
+              className="shrink-0 h-2 -my-1 cursor-row-resize z-10 rounded-full mx-auto w-full transition-colors hover:bg-border/60"
+            />
+
             {/* Logs Area */}
-            <Card className="p-0 gap-0 flex-1 flex flex-col min-h-[100px] shadow-sm border-border/60 overflow-hidden text-left bg-card">
+            <Card className="p-0 gap-0 flex flex-col shadow-sm border-border/60 overflow-hidden text-left bg-card shrink-0" style={{ height: logPanelHeight }}>
               <div className="flex items-center justify-between py-2 px-3 border-b border-border/50 shrink-0 bg-muted/30">
                 <span className="text-xs font-medium flex items-center gap-2 text-muted-foreground">
                   <Terminal className="w-3.5 h-3.5" />
