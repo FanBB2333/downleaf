@@ -24,6 +24,7 @@ func (w *webdavBackend) Start(cfg Config) error {
 
 	ofs := dav.NewOverleafFS(cfg.Client)
 	ofs.ZenMode = cfg.ZenMode
+	ofs.Cache.ZenMode = cfg.ZenMode
 	if len(cfg.ProjectFilters) > 0 {
 		ofs.ProjectFilters = cfg.ProjectFilters
 	}

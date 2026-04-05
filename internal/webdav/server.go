@@ -108,7 +108,8 @@ func (o *OverleafFS) refreshProjects() error {
 
 func (o *OverleafFS) refreshProjectsIfStale() error {
 	o.projectsMu.RLock()
-	fresh := len(o.projects) > 0 && time.Since(o.projectsFetched) < projectsTTL
+	hasProjects := len(o.projects) > 0
+	fresh := hasProjects && (o.ZenMode || time.Since(o.projectsFetched) < projectsTTL)
 	o.projectsMu.RUnlock()
 	if fresh {
 		return nil
@@ -127,6 +128,11 @@ func (o *OverleafFS) resolveWithCache(name string) (*pathInfo, error) {
 
 	o.resolveMu.RLock()
 	if entry, ok := o.resolveCache[key]; ok {
+		// In zen mode, positive resolve results never expire
+		if o.ZenMode && entry.err == nil {
+			o.resolveMu.RUnlock()
+			return entry.info, nil
+		}
 		ttl := resolveTTL
 		if entry.err != nil {
 			ttl = resolveNegTTL

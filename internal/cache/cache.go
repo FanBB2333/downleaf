@@ -17,6 +17,9 @@ type Cache struct {
 	mu      sync.RWMutex
 	entries map[string]*Entry
 	ttl     time.Duration
+	// ZenMode disables TTL expiry — once fetched, entries stay cached
+	// until the process exits. Only dirty tracking still applies.
+	ZenMode bool
 }
 
 // New creates a new cache with the given TTL.
@@ -28,6 +31,7 @@ func New(ttl time.Duration) *Cache {
 }
 
 // Get returns the cached data for a key, or nil if not found/expired.
+// In ZenMode, cached entries never expire.
 func (c *Cache) Get(key string) ([]byte, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -35,6 +39,10 @@ func (c *Cache) Get(key string) ([]byte, bool) {
 	e, ok := c.entries[key]
 	if !ok {
 		return nil, false
+	}
+	// In zen mode, once fetched, always serve from cache
+	if c.ZenMode {
+		return e.Data, true
 	}
 	if !e.Dirty && time.Since(e.FetchedAt) > c.ttl {
 		return nil, false
