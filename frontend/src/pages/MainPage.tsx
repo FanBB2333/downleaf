@@ -188,9 +188,9 @@ export function MainPage({
     : []
 
   return (
-    <div className="flex h-full bg-background overflow-hidden">
+    <div className="flex h-full bg-background overflow-hidden border-b border-border/50">
       {/* ===== Left Sidebar ===== */}
-      <div className="w-[280px] shrink-0 border-r bg-muted/10 flex flex-col h-full z-10 relative">
+      <div className="w-[280px] shrink-0 border-r border-border/50 bg-muted/10 flex flex-col h-full z-10 relative">
         <div onMouseDown={onDragMouseDown} className="h-12 border-b border-border/50 flex items-center px-4 pl-[78px] shrink-0 bg-background/60 backdrop-blur-md cursor-default">
           <div className="flex items-center gap-2.5">
             <span className="text-sm font-semibold tracking-tight">Downleaf</span>
@@ -207,8 +207,8 @@ export function MainPage({
           </Button>
         </div>
         
-        <ScrollArea className="flex-1 min-h-0 px-3">
-          <div className="space-y-2 pb-4">
+        <ScrollArea className="flex-1 min-h-0 px-3 pb-2">
+          <div className="space-y-2 pb-3">
             <div className="relative mb-2">
               <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
               <Input
