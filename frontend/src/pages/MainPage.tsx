@@ -357,28 +357,17 @@ export function MainPage({
             
             {/* Configuration Card */}
             <Card className="flex flex-col shrink min-h-[150px] shadow-sm border-border/60 overflow-hidden text-left bg-card group/card">
-              <CardHeader className="shrink-0 pb-5 pt-6 px-6 bg-card">
-                <CardTitle className="text-lg">Mount Setup</CardTitle>
-                <CardDescription className="text-sm mt-1.5 flex flex-col gap-2">
-                  <span>Configure local sync for:</span>
-                  <div className="flex flex-col gap-1.5 mt-0.5 max-h-[140px] overflow-y-auto pr-1 custom-scrollbar">
+              <CardHeader className="shrink-0 pb-3 pt-5 px-6 bg-card">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg">Mount Setup</CardTitle>
+                  <span className="text-xs text-muted-foreground flex items-center gap-1.5">
                     {selectedProjects.length === 0 ? (
-                      <div className="flex items-center gap-2.5 px-3 py-2 rounded-md bg-muted/30 border border-border/40 text-foreground font-medium text-sm shadow-sm transition-colors hover:bg-muted/40">
-                         <Library className="w-4 h-4 text-muted-foreground" />
-                         All Projects
-                      </div>
+                      <><Library className="w-3.5 h-3.5" /> All Projects</>
                     ) : (
-                      selectedProjects.map((p) => (
-                        <div key={p} className="flex items-center justify-between px-3 py-2 rounded-md bg-background border border-border/50 text-foreground font-medium text-sm shadow-sm transition-colors hover:bg-muted/30">
-                          <div className="flex items-center gap-2.5 overflow-hidden">
-                             <Folder className="w-4 h-4 shrink-0 text-sage/80 fill-sage/10" />
-                             <span className="truncate">{p}</span>
-                          </div>
-                        </div>
-                      ))
+                      <><Folder className="w-3.5 h-3.5 text-sage/80" /> {selectedProjects.length === 1 ? selectedProjects[0] : `${selectedProjects.length} projects`}</>
                     )}
-                  </div>
-                </CardDescription>
+                  </span>
+                </div>
               </CardHeader>
               <Separator className="shrink-0" />
               <CardContent className="flex-1 overflow-y-auto space-y-6 pt-6 px-6 pb-6 bg-card custom-scrollbar min-h-0">
