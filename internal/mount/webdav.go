@@ -39,13 +39,8 @@ func (w *webdavBackend) Start(cfg Config) error {
 		errCh <- dav.Serve(cfg.Addr, ofs)
 	}()
 
-	log.Printf("WebDAV server: http://%s", cfg.Addr)
-	log.Printf("Mounting at %s ...", cfg.Mountpoint)
-
 	if err := dav.MountNative(cfg.Addr, cfg.Mountpoint); err != nil {
-		log.Printf("Auto-mount failed: %v", err)
-		log.Printf("  macOS:  mount_webdav http://%s %s", cfg.Addr, cfg.Mountpoint)
-		log.Printf("  Linux:  sudo mount -t davfs http://%s %s", cfg.Addr, cfg.Mountpoint)
+		log.Printf("Auto-mount failed: %v (mount manually via http://%s)", err, cfg.Addr)
 	} else {
 		log.Printf("Mounted at %s", cfg.Mountpoint)
 	}
