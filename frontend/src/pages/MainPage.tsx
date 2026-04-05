@@ -356,10 +356,10 @@ export function MainPage({
           <div className="max-w-3xl w-full mx-auto gap-3 lg:gap-4 flex-1 flex flex-col min-h-0 h-full">
             
             {/* Configuration Card */}
-            <Card className="flex flex-col shrink min-h-[150px] shadow-sm border-border/60 overflow-hidden text-left bg-card group/card">
-              <CardHeader className="shrink-0 pb-3 pt-5 px-6 bg-card">
+            <Card className="flex flex-col shrink-0 shadow-sm border-border/60 text-left bg-card group/card">
+              <CardHeader className="shrink-0 py-3 px-5 bg-card">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg">Mount Setup</CardTitle>
+                  <CardTitle className="text-sm font-semibold">Mount Setup</CardTitle>
                   {selectedProjects.length === 0 ? (
                     <span className="text-xs text-muted-foreground flex items-center gap-1.5">
                       <Library className="w-3.5 h-3.5" /> All Projects
@@ -386,20 +386,19 @@ export function MainPage({
                 </div>
               </CardHeader>
               <Separator className="shrink-0" />
-              <CardContent className="flex-1 overflow-y-auto space-y-6 pt-6 px-6 pb-6 bg-card custom-scrollbar min-h-0">
-                <div className="space-y-2.5">
+              <CardContent className="shrink-0 space-y-4 py-4 px-5 bg-card">
+                <div className="space-y-1.5">
                   <Label htmlFor="mountpoint" className="text-sm font-medium">Local Mountpoint</Label>
                   <Input
                     id="mountpoint"
                     value={mountpoint}
                     onChange={(e) => setMountpoint(e.target.value)}
                     disabled={isMounted}
-                    className="font-mono text-sm h-10 bg-background/50 shadow-sm"
+                    className="font-mono text-sm h-9 bg-background/50 shadow-sm"
                   />
-                  <p className="text-xs text-muted-foreground pt-0.5">The absolute path where project files will be synchronized.</p>
                 </div>
-                
-                <div className="flex items-center space-x-3 bg-muted/40 p-4 rounded-lg border border-border/50 transition-colors hover:bg-muted/60">
+
+                <div className="flex items-center space-x-3 bg-muted/40 px-3 py-2.5 rounded-lg border border-border/50 transition-colors hover:bg-muted/60">
                   <Switch
                     id="zen"
                     checked={zenMode}
@@ -408,26 +407,26 @@ export function MainPage({
                   />
                   <Label htmlFor="zen" className="text-sm font-medium cursor-pointer flex-1">
                     Zen Mode
-                    <p className="text-xs text-muted-foreground font-normal leading-snug mt-1">
-                      Disable auto-sync on code change. Sync on manually.
+                    <p className="text-xs text-muted-foreground font-normal leading-snug mt-0.5">
+                      Local-first editing, sync manually.
                     </p>
                   </Label>
                 </div>
 
                 {isMounted && mountStatus && (
-                  <div className="text-sm text-sage px-4 py-3 rounded-md bg-sage-soft/20 border border-sage/20 flex flex-col gap-1">
-                     <span className="font-medium">Active Mount</span>
-                     <span className="font-mono text-xs opacity-90">{mountStatus.mountpoint}</span>
+                  <div className="text-sm text-sage px-3 py-2 rounded-md bg-sage-soft/20 border border-sage/20 flex items-center gap-2">
+                     <span className="font-medium">Active:</span>
+                     <span className="font-mono text-xs opacity-90 truncate">{mountStatus.mountpoint}</span>
                   </div>
                 )}
 
                 {error && (
-                  <div className="text-sm text-destructive px-4 py-3 rounded-md bg-destructive/10 border border-destructive/20 font-medium">
+                  <div className="text-sm text-destructive px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 font-medium">
                     {error}
                   </div>
                 )}
               </CardContent>
-              <div className="shrink-0 px-6 py-4 bg-muted/30 border-t border-border/50 flex items-center justify-end gap-3 rounded-b-xl">
+              <div className="shrink-0 px-5 py-3 bg-muted/30 border-t border-border/50 flex items-center justify-end gap-2.5 rounded-b-xl">
                  {isMounted ? (
                    <>
                      <Button variant="outline" className="shadow-sm" onClick={openMountpoint}>
