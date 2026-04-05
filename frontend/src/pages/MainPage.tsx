@@ -336,7 +336,7 @@ export function MainPage({
 
              <DropdownMenu>
                <DropdownMenuTrigger className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground px-2 py-1.5 rounded-md hover:bg-muted/60 transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                 <span className="w-1.5 h-1.5 rounded-full bg-sage inline-block" />
+                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
                  {loginStatus.email}
                </DropdownMenuTrigger>
                <DropdownMenuContent align="end" className="w-48">
