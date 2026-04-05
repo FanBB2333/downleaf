@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -93,14 +94,18 @@ func run() error {
 	case "mount":
 		mountpoint := filepath.Join(os.Getenv("HOME"), "downleaf")
 		addr := "localhost:9090"
-		projectFilter := os.Getenv("PROJECT")
+		var projectFilters []string
+		if envProject := os.Getenv("PROJECT"); envProject != "" {
+			projectFilters = []string{envProject}
+		}
 		zenMode := false
+		foreground := false
 		interactive := false
 		for i := 2; i < len(os.Args); i++ {
 			switch os.Args[i] {
 			case "--project":
 				if i+1 < len(os.Args) {
-					projectFilter = os.Args[i+1]
+					projectFilters = append(projectFilters, os.Args[i+1])
 					i++
 				}
 			case "--port":
@@ -112,18 +117,27 @@ func run() error {
 				zenMode = true
 			case "-i", "--interactive":
 				interactive = true
+			case "--foreground", "-f":
+				foreground = true
 			default:
 				mountpoint = os.Args[i]
 			}
 		}
-		if interactive && projectFilter == "" {
+		if interactive && len(projectFilters) == 0 {
 			selected, err := selectProject(client)
 			if err != nil {
 				return err
 			}
-			projectFilter = selected
+			if selected != "" {
+				projectFilters = []string{selected}
+			}
 		}
-		return cmdMount(client, addr, mountpoint, projectFilter, zenMode)
+
+		// Default: daemonize. With --foreground: block in terminal.
+		if !foreground {
+			return cmdMountDaemon(addr, mountpoint, projectFilters, zenMode)
+		}
+		return cmdMount(client, addr, mountpoint, projectFilters, zenMode)
 	case "download":
 		if len(os.Args) < 3 {
 			return fmt.Errorf("usage: downleaf download <project-id> [dest-dir]")
@@ -149,9 +163,12 @@ func printUsage() {
 	fmt.Println("  tree <project-id>                  Show project file tree")
 	fmt.Println("  cat <project-id> <doc-id>          Print document content")
 	fmt.Println("  download <project-id> [dest-dir]   Download project files locally")
-	fmt.Println("  mount [mountpoint] [--project <name|id>] [--zen] [-i] [--port PORT]")
+	fmt.Println("  mount [mountpoint] [--project <name|id>]... [--zen] [-i] [--port PORT] [-f]")
 	fmt.Println("                                     Start WebDAV server and mount (default: ~/downleaf, port 9090)")
+	fmt.Println("                                     Runs as a background daemon by default")
+	fmt.Println("                                     --foreground, -f: run in foreground (block terminal, Ctrl+C to stop)")
 	fmt.Println("                                     --zen: zen mode — changes stay local, sync on exit or 'downleaf sync'")
+	fmt.Println("                                     --project: mount specific project(s), can be repeated")
 	fmt.Println("                                     -i: interactive project selection")
 	fmt.Println("  sync                               Push all local changes to Overleaf (zen mode)")
 	fmt.Println("  umount [mountpoint]                Unmount filesystem")
@@ -363,7 +380,43 @@ func cmdSync() error {
 	return nil
 }
 
-func cmdMount(client *api.Client, addr, mountpoint, projectFilter string, zenMode bool) error {
+// cmdMountDaemon re-execs the current binary with --foreground in the background.
+func cmdMountDaemon(addr, mountpoint string, projectFilters []string, zenMode bool) error {
+	args := []string{"mount", "--foreground", "--port", strings.TrimPrefix(addr, "localhost:"), mountpoint}
+	for _, pf := range projectFilters {
+		args = append(args, "--project", pf)
+	}
+	if zenMode {
+		args = append(args, "--zen")
+	}
+
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("cannot find executable: %w", err)
+	}
+
+	cmd := exec.Command(exe, args...)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	cmd.Stdin = nil
+	// Detach from parent process group
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start daemon: %w", err)
+	}
+
+	fmt.Printf("Downleaf daemon started (PID %d)\n", cmd.Process.Pid)
+	fmt.Printf("  WebDAV: http://%s\n", addr)
+	fmt.Printf("  Mount:  %s\n", mountpoint)
+	if zenMode {
+		fmt.Println("  Mode:   zen (sync with 'downleaf sync')")
+	}
+	fmt.Println("  Stop:   downleaf umount")
+	return nil
+}
+
+func cmdMount(client *api.Client, addr, mountpoint string, projectFilters []string, zenMode bool) error {
 	if zenMode {
 		fmt.Println("Zen mode: all changes stay local for distraction-free editing.")
 		fmt.Println("  Sync manually:  downleaf sync")
@@ -372,8 +425,8 @@ func cmdMount(client *api.Client, addr, mountpoint, projectFilter string, zenMod
 
 	ofs := dav.NewOverleafFS(client)
 	ofs.ZenMode = zenMode
-	if projectFilter != "" {
-		ofs.ProjectFilters = []string{projectFilter}
+	if len(projectFilters) > 0 {
+		ofs.ProjectFilters = projectFilters
 	}
 
 	// Load .dlignore from mountpoint directory
