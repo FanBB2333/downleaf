@@ -21,8 +21,8 @@ import (
 	"github.com/FanBB2333/downleaf/internal/credential"
 	"github.com/FanBB2333/downleaf/internal/ignore"
 	"github.com/FanBB2333/downleaf/internal/model"
+	"github.com/FanBB2333/downleaf/internal/mount"
 	"github.com/FanBB2333/downleaf/internal/version"
-	dav "github.com/FanBB2333/downleaf/internal/webdav"
 )
 
 // LoginStatus is returned to the frontend.
@@ -38,23 +38,31 @@ type MountStatus struct {
 	Mountpoint string   `json:"mountpoint"`
 	Project    []string `json:"project"`
 	ZenMode    bool     `json:"zenMode"`
-	WebDAVAddr string `json:"webdavAddr"`
+	WebDAVAddr string   `json:"webdavAddr"`
+	Backend    string   `json:"backend"`
+}
+
+// BackendInfo describes a mount backend for the frontend.
+type BackendInfo struct {
+	Name      string `json:"name"`
+	Available bool   `json:"available"`
 }
 
 // App is the Wails binding struct that bridges Go backend and JS frontend.
 type App struct {
 	ctx context.Context
 
-	mu         sync.Mutex
-	identity   *auth.Identity
-	client     *api.Client
-	ofs        *dav.OverleafFS
-	siteURL    string
-	mounted    bool
-	mountpoint string
-	zenMode    bool
-	addr       string
-	projects   []string // project filters (names or empty for all)
+	mu          sync.Mutex
+	identity    *auth.Identity
+	client      *api.Client
+	backend     mount.Backend // active mount backend (nil when not mounted)
+	backendName string        // selected backend name
+	siteURL     string
+	mounted     bool
+	mountpoint  string
+	zenMode     bool
+	addr        string
+	projects    []string // project filters (names or empty for all)
 
 	credStore *credential.Store // credential storage
 
@@ -64,8 +72,9 @@ type App struct {
 
 func NewApp() *App {
 	return &App{
-		addr: "localhost:9090",
-		logBuf: make([]string, 0, 512),
+		addr:        "localhost:9090",
+		backendName: "webdav",
+		logBuf:      make([]string, 0, 512),
 	}
 }
 
@@ -95,9 +104,9 @@ func (a *App) Startup(ctx context.Context) {
 func (a *App) Shutdown(ctx context.Context) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.mounted && a.ofs != nil {
+	if a.mounted && a.backend != nil {
 		if a.zenMode {
-			stats := a.ofs.DirtySummary()
+			stats := a.backend.DirtySummary()
 			if len(stats) > 0 {
 				log.Printf("Syncing %d modified file(s):", len(stats))
 				for _, s := range stats {
@@ -105,10 +114,9 @@ func (a *App) Shutdown(ctx context.Context) {
 				}
 			}
 		}
-		a.ofs.FlushAll()
-		a.ofs.DisconnectAll()
-		dav.Unmount(a.mountpoint)
+		a.backend.Stop()
 		a.mounted = false
+		a.backend = nil
 	}
 }
 
@@ -188,7 +196,7 @@ func (a *App) ListTags() ([]model.Tag, error) {
 	return client.ListTags()
 }
 
-// Mount starts the WebDAV server and mounts the filesystem.
+// Mount starts the mount backend and mounts the filesystem.
 func (a *App) Mount(projectNames []string, mountpoint string, zenMode bool) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -208,10 +216,9 @@ func (a *App) Mount(projectNames []string, mountpoint string, zenMode bool) erro
 		mountpoint = filepath.Join(os.Getenv("HOME"), mountpoint[2:])
 	}
 
-	ofs := dav.NewOverleafFS(a.client)
-	ofs.ZenMode = zenMode
-	if len(projectNames) > 0 {
-		ofs.ProjectFilters = projectNames
+	backend, err := mount.Get(a.backendName)
+	if err != nil {
+		return fmt.Errorf("mount backend %q: %w", a.backendName, err)
 	}
 
 	// Load .dlignore from mountpoint directory
@@ -220,23 +227,24 @@ func (a *App) Mount(projectNames []string, mountpoint string, zenMode bool) erro
 		log.Printf("warning: failed to parse .dlignore: %v", igErr)
 		igMatcher = ignore.New()
 	}
-	ofs.Ignore = igMatcher
 
-	// Start WebDAV server
+	cfg := mount.Config{
+		Client:         a.client,
+		Addr:           a.addr,
+		Mountpoint:     mountpoint,
+		ProjectFilters: projectNames,
+		ZenMode:        zenMode,
+		Ignore:         igMatcher,
+	}
+
+	// Start backend in background (it blocks until Stop)
 	go func() {
-		if err := dav.Serve(a.addr, ofs); err != nil {
-			log.Printf("WebDAV server error: %v", err)
+		if err := backend.Start(cfg); err != nil {
+			log.Printf("Mount backend error: %v", err)
 		}
 	}()
 
-	// Mount
-	if err := dav.MountNative(a.addr, mountpoint); err != nil {
-		log.Printf("Auto-mount failed: %v (try mounting manually via http://%s)", err, a.addr)
-	} else {
-		log.Printf("Mounted at %s", mountpoint)
-	}
-
-	a.ofs = ofs
+	a.backend = backend
 	a.mounted = true
 	a.mountpoint = mountpoint
 	a.zenMode = zenMode
@@ -246,24 +254,22 @@ func (a *App) Mount(projectNames []string, mountpoint string, zenMode bool) erro
 	return nil
 }
 
-// Unmount stops the mount.
+// Unmount stops the mount backend (flushes, disconnects, unmounts).
 func (a *App) Unmount() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	if !a.mounted {
+	if !a.mounted || a.backend == nil {
 		return fmt.Errorf("not mounted")
 	}
 
-	a.ofs.FlushAll()
-	a.ofs.DisconnectAll()
-	if err := dav.Unmount(a.mountpoint); err != nil {
+	if err := a.backend.Stop(); err != nil {
 		return fmt.Errorf("unmount failed: %w", err)
 	}
 
 	log.Printf("Unmounted %s", a.mountpoint)
 	a.mounted = false
-	a.ofs = nil
+	a.backend = nil
 
 	wailsRuntime.EventsEmit(a.ctx, "mountStatusChanged")
 	return nil
@@ -272,15 +278,15 @@ func (a *App) Unmount() error {
 // Sync flushes all dirty files to Overleaf.
 func (a *App) Sync() (string, error) {
 	a.mu.Lock()
-	ofs := a.ofs
+	backend := a.backend
 	mounted := a.mounted
 	a.mu.Unlock()
 
-	if !mounted || ofs == nil {
+	if !mounted || backend == nil {
 		return "", fmt.Errorf("not mounted")
 	}
 
-	flushed, errors := ofs.FlushAll()
+	flushed, errors := backend.FlushAll()
 	msg := fmt.Sprintf("Sync complete: %d flushed, %d errors", flushed, errors)
 	log.Print(msg)
 	return msg, nil
@@ -296,7 +302,45 @@ func (a *App) GetMountStatus() *MountStatus {
 		Project:    a.projects,
 		ZenMode:    a.zenMode,
 		WebDAVAddr: a.addr,
+		Backend:    a.backendName,
 	}
+}
+
+// GetBackend returns the current backend name.
+func (a *App) GetBackend() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.backendName
+}
+
+// SetBackend changes the mount backend. Cannot be changed while mounted.
+func (a *App) SetBackend(name string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.mounted {
+		return fmt.Errorf("cannot change backend while mounted — unmount first")
+	}
+	if _, err := mount.Get(name); err != nil {
+		return err
+	}
+	a.backendName = name
+	log.Printf("Mount backend set to %s", name)
+	return nil
+}
+
+// ListBackends returns all registered backends with availability info.
+func (a *App) ListBackends() []BackendInfo {
+	// Currently only webdav is fully available; fuse is registered but placeholder
+	names := []string{"webdav", "fuse"}
+	var infos []BackendInfo
+	for _, n := range names {
+		_, err := mount.Get(n)
+		infos = append(infos, BackendInfo{
+			Name:      n,
+			Available: err == nil,
+		})
+	}
+	return infos
 }
 
 // GetLogs returns recent log lines.
