@@ -19,6 +19,7 @@ import (
 	"github.com/FanBB2333/downleaf/internal/auth"
 	"github.com/FanBB2333/downleaf/internal/ignore"
 	"github.com/FanBB2333/downleaf/internal/model"
+	"github.com/FanBB2333/downleaf/internal/mount"
 	"github.com/FanBB2333/downleaf/internal/version"
 	dav "github.com/FanBB2333/downleaf/internal/webdav"
 )
@@ -102,6 +103,7 @@ func run() error {
 		zenMode := false
 		foreground := false
 		mountAll := false
+		backendName := "webdav"
 		for i := 2; i < len(os.Args); i++ {
 			switch os.Args[i] {
 			case "--project":
@@ -120,6 +122,11 @@ func run() error {
 				mountAll = true
 			case "--foreground", "-f":
 				foreground = true
+			case "--backend":
+				if i+1 < len(os.Args) {
+					backendName = os.Args[i+1]
+					i++
+				}
 			default:
 				mountpoint = os.Args[i]
 			}
@@ -135,11 +142,16 @@ func run() error {
 			}
 		}
 
+		// Validate backend name early
+		if _, err := mount.Get(backendName); err != nil {
+			return err
+		}
+
 		// Default: daemonize. With --foreground: block in terminal.
 		if !foreground {
-			return cmdMountDaemon(addr, mountpoint, projectFilters, zenMode)
+			return cmdMountDaemon(addr, mountpoint, projectFilters, zenMode, backendName)
 		}
-		return cmdMount(client, addr, mountpoint, projectFilters, zenMode)
+		return cmdMount(client, addr, mountpoint, projectFilters, zenMode, backendName)
 	case "download":
 		if len(os.Args) < 3 {
 			return fmt.Errorf("usage: downleaf download <project-id> [dest-dir]")
@@ -165,13 +177,14 @@ func printUsage() {
 	fmt.Println("  tree <project-id>                  Show project file tree")
 	fmt.Println("  cat <project-id> <doc-id>          Print document content")
 	fmt.Println("  download <project-id> [dest-dir]   Download project files locally")
-	fmt.Println("  mount [mountpoint] [--project <name|id>]... [--zen] [--all] [--port PORT] [-f]")
-	fmt.Println("                                     Start WebDAV server and mount (default: ~/downleaf, port 9090)")
+	fmt.Println("  mount [mountpoint] [options]")
+	fmt.Println("                                     Mount Overleaf projects locally (default: ~/downleaf, port 9090)")
 	fmt.Println("                                     Interactive project selection by default")
 	fmt.Println("                                     --all: mount all projects (skip interactive selection)")
-	fmt.Println("                                     --project: mount specific project(s), can be repeated")
+	fmt.Println("                                     --project <name|id>: mount specific project(s), can be repeated")
 	fmt.Println("                                     --foreground, -f: run in foreground (block terminal, Ctrl+C to stop)")
-	fmt.Println("                                     --zen: zen mode — changes stay local, sync on exit or 'downleaf sync'")
+	fmt.Println("                                     --zen: changes stay local, sync on exit or 'downleaf sync'")
+	fmt.Printf("                                     --backend <name>: mount backend (available: %s, default: webdav)\n", mount.Available())
 	fmt.Println("  sync                               Push all local changes to Overleaf (zen mode)")
 	fmt.Println("  umount [mountpoint]                Unmount filesystem")
 	fmt.Println("  version                            Print version")
@@ -420,8 +433,8 @@ func cmdSync() error {
 }
 
 // cmdMountDaemon re-execs the current binary with --foreground in the background.
-func cmdMountDaemon(addr, mountpoint string, projectFilters []string, zenMode bool) error {
-	args := []string{"mount", "--foreground", "--port", strings.TrimPrefix(addr, "localhost:"), mountpoint}
+func cmdMountDaemon(addr, mountpoint string, projectFilters []string, zenMode bool, backendName string) error {
+	args := []string{"mount", "--foreground", "--backend", backendName, "--port", strings.TrimPrefix(addr, "localhost:"), mountpoint}
 	for _, pf := range projectFilters {
 		args = append(args, "--project", pf)
 	}
@@ -455,17 +468,11 @@ func cmdMountDaemon(addr, mountpoint string, projectFilters []string, zenMode bo
 	return nil
 }
 
-func cmdMount(client *api.Client, addr, mountpoint string, projectFilters []string, zenMode bool) error {
+func cmdMount(client *api.Client, addr, mountpoint string, projectFilters []string, zenMode bool, backendName string) error {
 	if zenMode {
 		fmt.Println("Zen mode: all changes stay local for distraction-free editing.")
 		fmt.Println("  Sync manually:  downleaf sync")
 		fmt.Println("  Sync on exit:   Ctrl+C")
-	}
-
-	ofs := dav.NewOverleafFS(client)
-	ofs.ZenMode = zenMode
-	if len(projectFilters) > 0 {
-		ofs.ProjectFilters = projectFilters
 	}
 
 	// Load .dlignore from mountpoint directory
@@ -474,7 +481,20 @@ func cmdMount(client *api.Client, addr, mountpoint string, projectFilters []stri
 		log.Printf("warning: failed to parse .dlignore: %v", err)
 		igMatcher = ignore.New()
 	}
-	ofs.Ignore = igMatcher
+
+	backend, err := mount.Get(backendName)
+	if err != nil {
+		return err
+	}
+
+	cfg := mount.Config{
+		Client:         client,
+		Addr:           addr,
+		Mountpoint:     mountpoint,
+		ProjectFilters: projectFilters,
+		ZenMode:        zenMode,
+		Ignore:         igMatcher,
+	}
 
 	// Write PID file for sync command
 	os.WriteFile(dav.PIDFile, fmt.Appendf(nil, "%d", os.Getpid()), 0644)
@@ -486,7 +506,7 @@ func cmdMount(client *api.Client, addr, mountpoint string, projectFilters []stri
 	go func() {
 		for range syncCh {
 			fmt.Println("\nSync requested — flushing dirty files...")
-			flushed, errors := ofs.FlushAll()
+			flushed, errors := backend.FlushAll()
 			fmt.Printf("Sync complete: %d flushed, %d errors\n", flushed, errors)
 		}
 	}()
@@ -500,7 +520,7 @@ func cmdMount(client *api.Client, addr, mountpoint string, projectFilters []stri
 
 		// In zen mode, show a git-style summary of modified files before flushing
 		if zenMode {
-			stats := ofs.DirtySummary()
+			stats := backend.DirtySummary()
 			if len(stats) > 0 {
 				printDirtySummary(stats)
 			} else {
@@ -509,40 +529,20 @@ func cmdMount(client *api.Client, addr, mountpoint string, projectFilters []stri
 		}
 
 		fmt.Println("Flushing dirty files...")
-		ofs.FlushAll()
-		ofs.DisconnectAll()
-		dav.Unmount(mountpoint)
+		backend.Stop()
 		os.Remove(dav.PIDFile)
 		os.Exit(0)
 	}()
 
-	// Start WebDAV server in background, then mount
-	go func() {
-		if err := dav.Serve(addr, ofs); err != nil {
-			fmt.Fprintf(os.Stderr, "WebDAV server error: %v\n", err)
-			os.Exit(1)
-		}
-	}()
-
-	fmt.Printf("WebDAV server: http://%s\n", addr)
-	fmt.Printf("Mounting at %s ...\n", mountpoint)
-
-	if err := dav.MountNative(addr, mountpoint); err != nil {
-		fmt.Printf("Auto-mount failed: %v\n", err)
-		fmt.Printf("You can mount manually:\n")
-		fmt.Printf("  macOS:  mount_webdav http://%s %s\n", addr, mountpoint)
-		fmt.Printf("  Linux:  sudo mount -t davfs http://%s %s\n", addr, mountpoint)
-		fmt.Printf("  Or open in Finder: Cmd+K → http://%s\n", addr)
-	} else {
-		fmt.Printf("Mounted at %s\n", mountpoint)
-	}
-
+	fmt.Printf("Using %s backend\n", backendName)
 	fmt.Println("Press Ctrl+C to stop.")
-	select {} // block forever
+
+	// Start blocks until error or Stop()
+	return backend.Start(cfg)
 }
 
 // printDirtySummary displays a git diff --stat style summary of modified files.
-func printDirtySummary(stats []dav.FileStat) {
+func printDirtySummary(stats []mount.FileStat) {
 	if len(stats) == 0 {
 		return
 	}
