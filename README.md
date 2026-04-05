@@ -113,19 +113,21 @@ claude
 | `downleaf tree <project-id>` | Show a project's file tree |
 | `downleaf cat <project-id> <doc-id>` | Print document content |
 | `downleaf download <project-id> [dest-dir]` | Download a project locally without mounting |
-| `downleaf mount` | Mount projects locally (default `~/downleaf`) |
-| `downleaf mount -i --zen` | Interactive project selection in zen mode |
+| `downleaf mount` | Mount projects locally (interactive selection, default `~/downleaf`) |
+| `downleaf mount --zen` | Mount in zen mode (interactive, changes stay local) |
+| `downleaf mount --all` | Mount all projects without prompting |
 | `downleaf sync` | Push local changes from zen mode |
-| `downleaf umount` | Unmount |
+| `downleaf umount` | Unmount and stop daemon |
 | `downleaf version` | Print version |
 | `downleaf help` | Show help |
 
 Mount options:
 
-- `--project <name|id>`: mount only the selected project
-- `--zen`: keep writes local and sync on `downleaf sync` or `Ctrl+C`
-- `-i`, `--interactive`: choose a project interactively
-- `--port <port>`: set the WebDAV server port
+- `--project <name|id>`: mount specific project(s), can be repeated
+- `--all`: mount all projects (skip interactive selection)
+- `--zen`: keep writes local and sync on `downleaf sync` or `downleaf umount`
+- `--foreground`, `-f`: run in foreground (block terminal, Ctrl+C to stop)
+- `--port <port>`: set the WebDAV server port (default: `9090`)
 
 ## Authentication Modes
 
