@@ -41,15 +41,15 @@ export namespace credential {
 }
 
 export namespace gui {
-
+	
 	export class BackendInfo {
 	    name: string;
 	    available: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new BackendInfo(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -79,11 +79,11 @@ export namespace gui {
 	    zenMode: boolean;
 	    webdavAddr: string;
 	    backend: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new MountStatus(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.mounted = source["mounted"];
