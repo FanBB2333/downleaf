@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/joho/godotenv"
 
@@ -65,7 +66,7 @@ func run() error {
 		if len(os.Args) > 2 {
 			mountpoint = os.Args[2]
 		}
-		return dav.Unmount(mountpoint)
+		return cmdUmount(mountpoint)
 	}
 
 	// Authenticate
@@ -353,6 +354,43 @@ func selectProject(client *api.Client) (string, error) {
 		fmt.Printf("Selected: %s (%s)\n", selected.Name, selected.ID)
 		return selected.ID, nil
 	}
+}
+
+func cmdUmount(mountpoint string) error {
+	// Try to signal the daemon process to flush and exit gracefully
+	pidData, err := os.ReadFile(dav.PIDFile)
+	if err == nil {
+		var pid int
+		if _, err := fmt.Sscanf(string(pidData), "%d", &pid); err == nil {
+			proc, err := os.FindProcess(pid)
+			if err == nil {
+				fmt.Printf("Sending stop signal to daemon (PID %d)...\n", pid)
+				// SIGTERM triggers the signal handler which flushes dirty files,
+				// disconnects Socket.IO, unmounts, and exits.
+				if err := proc.Signal(syscall.SIGTERM); err != nil {
+					fmt.Printf("Could not signal process %d: %v\n", pid, err)
+					fmt.Println("Falling back to direct unmount...")
+				} else {
+					// Wait for the process to exit (up to 30 seconds)
+					done := make(chan error, 1)
+					go func() {
+						_, err := proc.Wait()
+						done <- err
+					}()
+					select {
+					case <-done:
+						fmt.Println("Daemon stopped.")
+						return nil
+					case <-time.After(30 * time.Second):
+						fmt.Println("Daemon did not exit in time, forcing unmount...")
+					}
+				}
+			}
+		}
+	}
+
+	// Fallback: direct unmount (no daemon found or signal failed)
+	return dav.Unmount(mountpoint)
 }
 
 func cmdSync() error {
