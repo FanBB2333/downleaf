@@ -612,7 +612,7 @@ func cmdSync() error {
 	}
 
 	fmt.Printf("Sending sync signal to mount process (PID %d)...\n", pid)
-	if err := proc.Signal(syscall.SIGUSR1); err != nil {
+	if err := sendSyncSignal(proc); err != nil {
 		return fmt.Errorf("failed to signal process: %w", err)
 	}
 
@@ -639,8 +639,8 @@ func cmdMountDaemon(addr, mountpoint string, projectFilters []string, zenMode bo
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	cmd.Stdin = nil
-	// Detach from parent process group
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	// Detach from parent process group (platform-specific)
+	setSysProcAttr(cmd)
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start daemon: %w", err)
@@ -688,9 +688,9 @@ func cmdMount(client *api.Client, addr, mountpoint string, projectFilters []stri
 	os.WriteFile(dav.PIDFile, fmt.Appendf(nil, "%d", os.Getpid()), 0644)
 	defer os.Remove(dav.PIDFile)
 
-	// Handle SIGUSR1 for zen mode sync
+	// Handle sync signal (SIGUSR1 on Unix, no-op on Windows)
 	syncCh := make(chan os.Signal, 1)
-	signal.Notify(syncCh, syscall.SIGUSR1)
+	notifySyncSignal(syncCh)
 	go func() {
 		for range syncCh {
 			fmt.Println("\nSync requested — flushing dirty files...")
