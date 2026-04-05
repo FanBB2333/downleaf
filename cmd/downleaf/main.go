@@ -17,6 +17,7 @@ import (
 
 	"github.com/FanBB2333/downleaf/internal/api"
 	"github.com/FanBB2333/downleaf/internal/auth"
+	"github.com/FanBB2333/downleaf/internal/credential"
 	"github.com/FanBB2333/downleaf/internal/ignore"
 	"github.com/FanBB2333/downleaf/internal/model"
 	"github.com/FanBB2333/downleaf/internal/mount"
@@ -33,14 +34,7 @@ func main() {
 
 func run() error {
 	if err := godotenv.Load(); err != nil {
-		fmt.Println("warning: no .env file found, using environment variables")
-	}
-
-	siteURL := os.Getenv("SITE")
-	cookies := os.Getenv("COOKIES")
-
-	if siteURL == "" || cookies == "" {
-		return fmt.Errorf("SITE and COOKIES must be set in .env or environment")
+		// silently ignore — not required if using stored credentials
 	}
 
 	cmd := "ls"
@@ -48,33 +42,34 @@ func run() error {
 		cmd = os.Args[1]
 	}
 
-	if cmd == "version" || cmd == "--version" || cmd == "-v" {
+	// Commands that don't require authentication
+	switch cmd {
+	case "version", "--version", "-v":
 		fmt.Printf("downleaf %s\n", version.Version)
 		return nil
-	}
-
-	if cmd == "help" || cmd == "--help" || cmd == "-h" {
+	case "help", "--help", "-h":
 		printUsage()
 		return nil
-	}
-
-	if cmd == "sync" {
+	case "sync":
 		return cmdSync()
-	}
-
-	if cmd == "umount" || cmd == "unmount" {
+	case "umount", "unmount":
 		mountpoint := filepath.Join(os.Getenv("HOME"), "downleaf")
 		if len(os.Args) > 2 {
 			mountpoint = os.Args[2]
 		}
 		return cmdUmount(mountpoint)
+	case "login":
+		return cmdLogin()
+	case "logout":
+		return cmdLogout()
+	case "accounts":
+		return cmdAccounts()
 	}
 
-	// Authenticate
-	fmt.Printf("Authenticating with %s ...\n", siteURL)
-	identity, err := auth.LoginWithCookies(siteURL, cookies)
+	// Authenticate: try stored credentials first, then fall back to env vars
+	siteURL, identity, err := authenticate()
 	if err != nil {
-		return fmt.Errorf("authentication failed: %w", err)
+		return err
 	}
 	fmt.Printf("Authenticated as: %s\n", identity.Email)
 
@@ -187,11 +182,17 @@ func printUsage() {
 	fmt.Printf("                                     --backend <name>: mount backend (available: %s, default: webdav)\n", mount.Available())
 	fmt.Println("  sync                               Push all local changes to Overleaf (zen mode)")
 	fmt.Println("  umount [mountpoint]                Unmount filesystem")
+	fmt.Println("  login [site-url]                   Log in (browser or cookie) and save credential")
+	fmt.Println("  logout [email|id]                  Remove a saved credential")
+	fmt.Println("  accounts                           List saved credentials")
 	fmt.Println("  version                            Print version")
 	fmt.Println()
+	fmt.Println("Authentication:")
+	fmt.Println("  Uses saved credentials by default. Env vars SITE+COOKIES override.")
+	fmt.Println()
 	fmt.Println("Environment variables (via .env or shell):")
-	fmt.Println("  SITE       Overleaf site URL (required)")
-	fmt.Println("  COOKIES    Session cookie (required)")
+	fmt.Println("  SITE       Overleaf site URL")
+	fmt.Println("  COOKIES    Session cookie")
 	fmt.Println("  PROJECT    Default project name or ID for mount")
 }
 
@@ -368,6 +369,193 @@ func selectProject(client *api.Client) (string, error) {
 		fmt.Printf("Selected: %s (%s)\n", selected.Name, selected.ID)
 		return selected.ID, nil
 	}
+}
+
+// authenticate tries stored credentials first, then env vars.
+func authenticate() (siteURL string, identity *auth.Identity, err error) {
+	// If env vars are set, use them (override stored creds)
+	siteURL = os.Getenv("SITE")
+	cookies := os.Getenv("COOKIES")
+	if siteURL != "" && cookies != "" {
+		fmt.Printf("Authenticating with %s ...\n", siteURL)
+		identity, err = auth.LoginWithCookies(siteURL, cookies)
+		if err != nil {
+			return "", nil, fmt.Errorf("authentication failed: %w", err)
+		}
+		return siteURL, identity, nil
+	}
+
+	// Try stored credentials (most recently used first)
+	store, storeErr := credential.NewStore()
+	if storeErr == nil {
+		creds, listErr := store.List()
+		if listErr == nil && len(creds) > 0 {
+			// Use the most recently used credential
+			cred, loadErr := store.Load(creds[0].ID)
+			if loadErr == nil {
+				fmt.Printf("Authenticating with %s (%s) ...\n", cred.SiteURL, cred.Email)
+				identity, err = auth.LoginWithCookies(cred.SiteURL, cred.Cookies)
+				if err != nil {
+					return "", nil, fmt.Errorf("stored credential expired for %s, run 'downleaf login' to re-authenticate: %w", cred.Email, err)
+				}
+				store.UpdateLastUsed(cred.ID)
+				return cred.SiteURL, identity, nil
+			}
+		}
+	}
+
+	return "", nil, fmt.Errorf("no credentials found. Run 'downleaf login' or set SITE+COOKIES in .env")
+}
+
+func cmdLogin() error {
+	reader := bufio.NewReader(os.Stdin)
+
+	// Get site URL
+	siteURL := os.Getenv("SITE")
+	if len(os.Args) > 2 {
+		siteURL = os.Args[2]
+	}
+	if siteURL == "" {
+		fmt.Print("Overleaf site URL (e.g. https://www.overleaf.com): ")
+		line, _ := reader.ReadString('\n')
+		siteURL = strings.TrimSpace(line)
+	}
+	if siteURL == "" {
+		return fmt.Errorf("site URL is required")
+	}
+	siteURL = strings.TrimRight(siteURL, "/")
+
+	store, err := credential.NewStore()
+	if err != nil {
+		return fmt.Errorf("credential store: %w", err)
+	}
+
+	// Try browser login if supported
+	if auth.IsBrowserLoginSupported() {
+		fmt.Println("Opening browser for login...")
+		cookies, err := auth.BrowserLogin(siteURL)
+		if err != nil {
+			fmt.Printf("Browser login failed: %v\n", err)
+			fmt.Println("Falling back to cookie login...")
+		} else {
+			return saveCookieCredential(store, siteURL, cookies)
+		}
+	}
+
+	// Manual cookie login
+	fmt.Println("Paste your session cookie (from browser DevTools → Application → Cookies):")
+	fmt.Print("Cookie: ")
+	line, _ := reader.ReadString('\n')
+	cookies := strings.TrimSpace(line)
+	if cookies == "" {
+		return fmt.Errorf("cookie is required")
+	}
+
+	return saveCookieCredential(store, siteURL, cookies)
+}
+
+func saveCookieCredential(store *credential.Store, siteURL, cookies string) error {
+	fmt.Println("Validating cookies...")
+	identity, err := auth.LoginWithCookies(siteURL, cookies)
+	if err != nil {
+		return fmt.Errorf("login failed: %w", err)
+	}
+
+	cred := &credential.Credential{
+		ID:         credential.GenerateID(siteURL, identity.Email),
+		SiteURL:    siteURL,
+		Email:      identity.Email,
+		UserID:     identity.UserID,
+		Cookies:    cookies,
+		CSRFToken:  identity.CSRFToken,
+		CreatedAt:  time.Now(),
+		LastUsedAt: time.Now(),
+	}
+	if err := store.Save(cred); err != nil {
+		return fmt.Errorf("save credential: %w", err)
+	}
+
+	fmt.Printf("Logged in as %s (%s)\n", identity.Email, siteURL)
+	fmt.Println("Credential saved.")
+	return nil
+}
+
+func cmdLogout() error {
+	store, err := credential.NewStore()
+	if err != nil {
+		return fmt.Errorf("credential store: %w", err)
+	}
+
+	creds, err := store.List()
+	if err != nil {
+		return err
+	}
+	if len(creds) == 0 {
+		fmt.Println("No saved credentials.")
+		return nil
+	}
+
+	// If an argument is provided, match by email or ID
+	if len(os.Args) > 2 {
+		target := os.Args[2]
+		for _, c := range creds {
+			if c.ID == target || strings.EqualFold(c.Email, target) {
+				if err := store.Delete(c.ID); err != nil {
+					return err
+				}
+				fmt.Printf("Removed credential for %s (%s)\n", c.Email, c.SiteURL)
+				return nil
+			}
+		}
+		return fmt.Errorf("credential not found: %s", target)
+	}
+
+	// Interactive selection
+	fmt.Println("Select credential to remove:")
+	for i, c := range creds {
+		fmt.Printf("  %d) %s — %s\n", i+1, c.Email, c.SiteURL)
+	}
+	fmt.Print("Enter number: ")
+	reader := bufio.NewReader(os.Stdin)
+	line, _ := reader.ReadString('\n')
+	n, err := strconv.Atoi(strings.TrimSpace(line))
+	if err != nil || n < 1 || n > len(creds) {
+		return fmt.Errorf("invalid selection")
+	}
+	c := creds[n-1]
+	if err := store.Delete(c.ID); err != nil {
+		return err
+	}
+	fmt.Printf("Removed credential for %s (%s)\n", c.Email, c.SiteURL)
+	return nil
+}
+
+func cmdAccounts() error {
+	store, err := credential.NewStore()
+	if err != nil {
+		return fmt.Errorf("credential store: %w", err)
+	}
+
+	creds, err := store.List()
+	if err != nil {
+		return err
+	}
+	if len(creds) == 0 {
+		fmt.Println("No saved credentials. Run 'downleaf login' to add one.")
+		return nil
+	}
+
+	fmt.Printf("\n%d saved account(s):\n", len(creds))
+	for i, c := range creds {
+		marker := "  "
+		if i == 0 {
+			marker = "* " // most recently used = active
+		}
+		fmt.Printf("  %s%s — %s (last used: %s)\n", marker, c.Email, c.SiteURL, c.LastUsedAt.Format("2006-01-02"))
+	}
+	fmt.Println()
+	fmt.Println("  * = active (most recently used)")
+	return nil
 }
 
 func cmdUmount(mountpoint string) error {
