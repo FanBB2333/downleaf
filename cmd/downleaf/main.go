@@ -101,7 +101,7 @@ func run() error {
 		}
 		zenMode := false
 		foreground := false
-		interactive := false
+		mountAll := false
 		for i := 2; i < len(os.Args); i++ {
 			switch os.Args[i] {
 			case "--project":
@@ -116,15 +116,16 @@ func run() error {
 				}
 			case "--zen":
 				zenMode = true
-			case "-i", "--interactive":
-				interactive = true
+			case "--all":
+				mountAll = true
 			case "--foreground", "-f":
 				foreground = true
 			default:
 				mountpoint = os.Args[i]
 			}
 		}
-		if interactive && len(projectFilters) == 0 {
+		// Interactive selection is default unless --all or --project is specified
+		if !mountAll && len(projectFilters) == 0 {
 			selected, err := selectProject(client)
 			if err != nil {
 				return err
@@ -164,13 +165,13 @@ func printUsage() {
 	fmt.Println("  tree <project-id>                  Show project file tree")
 	fmt.Println("  cat <project-id> <doc-id>          Print document content")
 	fmt.Println("  download <project-id> [dest-dir]   Download project files locally")
-	fmt.Println("  mount [mountpoint] [--project <name|id>]... [--zen] [-i] [--port PORT] [-f]")
+	fmt.Println("  mount [mountpoint] [--project <name|id>]... [--zen] [--all] [--port PORT] [-f]")
 	fmt.Println("                                     Start WebDAV server and mount (default: ~/downleaf, port 9090)")
-	fmt.Println("                                     Runs as a background daemon by default")
+	fmt.Println("                                     Interactive project selection by default")
+	fmt.Println("                                     --all: mount all projects (skip interactive selection)")
+	fmt.Println("                                     --project: mount specific project(s), can be repeated")
 	fmt.Println("                                     --foreground, -f: run in foreground (block terminal, Ctrl+C to stop)")
 	fmt.Println("                                     --zen: zen mode — changes stay local, sync on exit or 'downleaf sync'")
-	fmt.Println("                                     --project: mount specific project(s), can be repeated")
-	fmt.Println("                                     -i: interactive project selection")
 	fmt.Println("  sync                               Push all local changes to Overleaf (zen mode)")
 	fmt.Println("  umount [mountpoint]                Unmount filesystem")
 	fmt.Println("  version                            Print version")
