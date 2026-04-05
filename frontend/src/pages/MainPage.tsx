@@ -360,13 +360,29 @@ export function MainPage({
               <CardHeader className="shrink-0 pb-3 pt-5 px-6 bg-card">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-lg">Mount Setup</CardTitle>
-                  <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-                    {selectedProjects.length === 0 ? (
-                      <><Library className="w-3.5 h-3.5" /> All Projects</>
-                    ) : (
-                      <><Folder className="w-3.5 h-3.5 text-sage/80" /> {selectedProjects.length === 1 ? selectedProjects[0] : `${selectedProjects.length} projects`}</>
-                    )}
-                  </span>
+                  {selectedProjects.length === 0 ? (
+                    <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                      <Library className="w-3.5 h-3.5" /> All Projects
+                    </span>
+                  ) : selectedProjects.length === 1 ? (
+                    <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                      <Folder className="w-3.5 h-3.5 text-sage/80" /> {selectedProjects[0]}
+                    </span>
+                  ) : (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger className="text-xs text-muted-foreground flex items-center gap-1.5 hover:text-foreground transition-colors cursor-pointer outline-none rounded px-1.5 py-0.5 hover:bg-muted/60">
+                        <Folder className="w-3.5 h-3.5 text-sage/80" /> {selectedProjects.length} projects
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="min-w-[180px]">
+                        {selectedProjects.map((p) => (
+                          <DropdownMenuItem key={p} className="text-xs gap-2" onSelect={(e) => e.preventDefault()}>
+                            <Folder className="w-3.5 h-3.5 text-sage/80 shrink-0" />
+                            <span className="truncate">{p}</span>
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                 </div>
               </CardHeader>
               <Separator className="shrink-0" />
