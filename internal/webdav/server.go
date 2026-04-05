@@ -1299,7 +1299,11 @@ func Serve(addr string, ofs *OverleafFS) error {
 		LockSystem: gowebdav.NewMemLS(),
 		Logger: func(r *http.Request, err error) {
 			if err != nil {
-				if os.IsNotExist(err) && (r.Method == "PROPFIND" || isNoiseRequest(r.URL.Path)) {
+				// Suppress all errors for noise files (.DS_Store, .git, ._*, etc.)
+				if isNoiseRequest(r.URL.Path) {
+					return
+				}
+				if os.IsNotExist(err) && r.Method == "PROPFIND" {
 					return
 				}
 				log.Printf("WebDAV %s %s: %v", r.Method, r.URL.Path, err)
