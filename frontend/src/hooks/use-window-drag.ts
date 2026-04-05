@@ -15,7 +15,7 @@ export function useWindowDrag() {
     if (e.button !== 0) return
 
     const target = e.target as HTMLElement
-    if (target.closest('button, a, input, select, textarea, [role="button"], [data-no-drag]')) {
+    if (target.closest('button, a, input, select, textarea, [role="button"], [role="slider"], [role="dialog"], [data-slot="dialog-overlay"], [data-no-drag]')) {
       return
     }
 
