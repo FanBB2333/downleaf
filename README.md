@@ -1,10 +1,24 @@
 # Downleaf
 
-Mount Overleaf projects as local directories and edit LaTeX files with your favorite editor.
+Mount Overleaf projects into a local workspace and edit LaTeX files with your favorite editor.
 
-Downleaf runs a local WebDAV server that maps Overleaf project files to a standard filesystem. No kernel extensions required — works on macOS, Linux, and Windows.
+Downleaf runs a local WebDAV server that maps Overleaf project files to a standard filesystem. The repository currently contains:
 
-## Quick Start
+- A desktop app built with Wails at the repo root (`main.go` + `frontend/`)
+- A CLI tool in [`cmd/downleaf`](cmd/downleaf)
+
+Native auto-mount is implemented for macOS and Linux. On other platforms, Downleaf still serves WebDAV and can be mounted manually.
+
+## Current Features
+
+- Mount all projects or a selected project into a local directory
+- Zen mode (`--zen`) for local-first editing with explicit sync
+- Download projects without mounting
+- Inspect projects with `ls`, `tree`, and `cat`
+- Desktop login UI with saved credentials
+- Browser-based login in the desktop app on macOS
+
+## Quick Start (CLI)
 
 ### 1. Build
 
@@ -14,7 +28,7 @@ cd downleaf
 go build -o downleaf ./cmd/downleaf
 ```
 
-### 2. Configure
+### 2. Configure authentication
 
 Copy your Overleaf session cookie from the browser and create a `.env` file:
 
@@ -25,7 +39,9 @@ COOKIES=overleaf_session2=s%3Axxxxxxxxxx...
 
 > How to get the cookie: Log in to Overleaf → F12 Developer Tools → Application → Cookies → copy the `overleaf_session2` value
 
-### 3. Mount
+If you use a self-hosted Overleaf instance, set `SITE` to its base URL.
+
+### 3. Mount your projects
 
 ```bash
 ./downleaf mount
@@ -52,13 +68,24 @@ vim ~/downleaf/My-Paper/main.tex  # Vim
 cd ~/downleaf/My-Paper && claude  # Claude Code
 ```
 
-Changes are automatically synced to Overleaf on save. Press `Ctrl+C` to stop.
+In normal mode, changes are uploaded automatically on write. Press `Ctrl+C` to stop.
+
+## Desktop App
+
+The desktop app exposes the same core mount workflow through a GUI and adds login conveniences that do not exist in the CLI:
+
+- Saved credentials
+- Browser login on macOS
+- Manual cookie login fallback
+- Project picker, mount status, and log viewer
+
+The desktop backend lives in [`main.go`](main.go) and [`internal/gui/app.go`](internal/gui/app.go).
 
 ## Example: Editing a Paper with Claude Code
 
 ```bash
-# Terminal 1: Mount in batch mode (defers sync to avoid frequent uploads)
-./downleaf mount -i --batch
+# Terminal 1: Mount in zen mode (keep changes local until you sync)
+./downleaf mount -i --zen
 
 # Interactive project selection:
 #   Select a project to mount (52 projects):
@@ -76,19 +103,55 @@ claude
 ./downleaf sync
 ```
 
+`--zen` is the current local-first mode. The old `--batch` flag no longer exists.
+
 ## Commands
 
 | Command | Description |
 |---------|-------------|
 | `downleaf ls` | List all projects |
+| `downleaf tree <project-id>` | Show a project's file tree |
+| `downleaf cat <project-id> <doc-id>` | Print document content |
+| `downleaf download <project-id> [dest-dir]` | Download a project locally without mounting |
 | `downleaf mount` | Mount projects locally (default `~/downleaf`) |
-| `downleaf mount -i --batch` | Interactive project selection, batch mode |
-| `downleaf sync` | Push local changes from batch mode |
-| `downleaf download <id>` | Download a project to a local directory |
+| `downleaf mount -i --zen` | Interactive project selection in zen mode |
+| `downleaf sync` | Push local changes from zen mode |
 | `downleaf umount` | Unmount |
+| `downleaf version` | Print version |
 | `downleaf help` | Show help |
 
-Mount options: `--project <name|id>`, `--batch`, `-i`, `--port <port>`
+Mount options:
+
+- `--project <name|id>`: mount only the selected project
+- `--zen`: keep writes local and sync on `downleaf sync` or `Ctrl+C`
+- `-i`, `--interactive`: choose a project interactively
+- `--port <port>`: set the WebDAV server port
+
+## Authentication Modes
+
+CLI authentication currently requires `SITE` and `COOKIES` from `.env` or the environment.
+
+The desktop app supports:
+
+- Browser login on macOS
+- Reusing saved credentials
+- Manual cookie login
+
+## Platform Notes
+
+- macOS: native auto-mount via `mount_webdav`
+- Linux: native auto-mount via `mount -t davfs`
+- Other platforms: Downleaf still starts the local WebDAV server, but mounting is manual
+
+If auto-mount fails, the CLI prints manual mounting instructions and the WebDAV URL.
+
+## How It Works
+
+1. Authenticates with Overleaf using session cookies
+2. Fetches project trees and document content via Overleaf APIs and Socket.IO
+3. Starts a local WebDAV server that mirrors the Overleaf file structure
+4. Mounts that WebDAV server into a local directory when native mounting is available
+5. Writes local file changes back to Overleaf immediately, or later in zen mode
 
 ## Documentation
 
@@ -96,14 +159,6 @@ Mount options: `--project <name|id>`, `--batch`, `-i`, `--port <port>`
 - [Getting Started](docs/getting-started.md)
 - [Architecture](docs/architecture.md)
 - [Troubleshooting](docs/troubleshooting.md)
-
-## How It Works
-
-1. Authenticates with Overleaf using session cookies
-2. Fetches project file trees and document content via Socket.IO v0
-3. Starts a local WebDAV server mapping Overleaf's file structure to a standard filesystem
-4. Mounts to a local directory via `mount_webdav` (macOS) or `davfs` (Linux)
-5. File changes are written back through the Overleaf REST API
 
 ## License
 
