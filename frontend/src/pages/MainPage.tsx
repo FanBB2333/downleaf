@@ -456,7 +456,7 @@ export function MainPage({
             />
 
             {/* Logs Area */}
-            <Card className="p-0 gap-0 flex flex-col shadow-sm border-border/60 overflow-hidden text-left bg-card shrink-0" style={{ height: logPanelHeight }}>
+            <Card className="p-0 gap-0 flex flex-col shadow-sm border-border/60 overflow-hidden text-left bg-card flex-1" style={{ minHeight: logPanelHeight }}>
               <div className="flex items-center justify-between py-2 px-3 border-b border-border/50 shrink-0 bg-muted/30">
                 <span className="text-xs font-medium flex items-center gap-2 text-muted-foreground">
                   <Terminal className="w-3.5 h-3.5" />
