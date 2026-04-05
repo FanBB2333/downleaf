@@ -6,6 +6,8 @@ import {model} from '../models';
 
 export function DeleteCredential(arg1:string):Promise<void>;
 
+export function GetBackend():Promise<string>;
+
 export function GetEnvDefaults():Promise<Record<string, string>>;
 
 export function GetLoginStatus():Promise<gui.LoginStatus>;
@@ -17,6 +19,8 @@ export function GetMountStatus():Promise<gui.MountStatus>;
 export function GetVersion():Promise<string>;
 
 export function IsBrowserLoginSupported():Promise<boolean>;
+
+export function ListBackends():Promise<Array<gui.BackendInfo>>;
 
 export function ListCredentials():Promise<Array<credential.CredentialInfo>>;
 
@@ -33,6 +37,8 @@ export function LoginWithCredential(arg1:string):Promise<gui.LoginStatus>;
 export function Mount(arg1:Array<string>,arg2:string,arg3:boolean):Promise<void>;
 
 export function OpenMountpoint():Promise<void>;
+
+export function SetBackend(arg1:string):Promise<void>;
 
 export function Sync():Promise<string>;
 

@@ -6,6 +6,10 @@ export function DeleteCredential(arg1) {
   return window['go']['gui']['App']['DeleteCredential'](arg1);
 }
 
+export function GetBackend() {
+  return window['go']['gui']['App']['GetBackend']();
+}
+
 export function GetEnvDefaults() {
   return window['go']['gui']['App']['GetEnvDefaults']();
 }
@@ -28,6 +32,10 @@ export function GetVersion() {
 
 export function IsBrowserLoginSupported() {
   return window['go']['gui']['App']['IsBrowserLoginSupported']();
+}
+
+export function ListBackends() {
+  return window['go']['gui']['App']['ListBackends']();
 }
 
 export function ListCredentials() {
@@ -60,6 +68,10 @@ export function Mount(arg1, arg2, arg3) {
 
 export function OpenMountpoint() {
   return window['go']['gui']['App']['OpenMountpoint']();
+}
+
+export function SetBackend(arg1) {
+  return window['go']['gui']['App']['SetBackend'](arg1);
 }
 
 export function Sync() {

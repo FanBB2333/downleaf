@@ -39,9 +39,12 @@ interface MainPageProps {
   theme: Theme
   colorScheme: ColorScheme
   fontSize: number
+  backend: string
+  backends: gui.BackendInfo[]
   setTheme: (t: Theme) => void
   setColorScheme: (s: ColorScheme) => void
   setFontSize: (s: number) => void
+  setBackend: (name: string) => Promise<void>
   refreshProjects: () => Promise<void>
   mount: (projects: string[], mountpoint: string, zenMode: boolean) => Promise<void>
   unmount: () => Promise<void>
@@ -64,9 +67,12 @@ export function MainPage({
   theme,
   colorScheme,
   fontSize,
+  backend,
+  backends,
   setTheme,
   setColorScheme,
   setFontSize,
+  setBackend,
   refreshProjects,
   mount,
   unmount,
@@ -326,7 +332,7 @@ export function MainPage({
                  Mounted
                </Badge>
              )}
-             <SettingsDialog theme={theme} colorScheme={colorScheme} fontSize={fontSize} setTheme={setTheme} setColorScheme={setColorScheme} setFontSize={setFontSize} />
+             <SettingsDialog theme={theme} colorScheme={colorScheme} fontSize={fontSize} backend={backend} backends={backends} isMounted={isMounted} setTheme={setTheme} setColorScheme={setColorScheme} setFontSize={setFontSize} setBackend={setBackend} />
 
              <DropdownMenu>
                <DropdownMenuTrigger className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground px-2 py-1.5 rounded-md hover:bg-muted/60 transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -554,16 +560,24 @@ function SettingsDialog({
   theme,
   colorScheme,
   fontSize,
+  backend,
+  backends,
+  isMounted,
   setTheme,
   setColorScheme,
   setFontSize,
+  setBackend,
 }: {
   theme: Theme
   colorScheme: ColorScheme
   fontSize: number
+  backend: string
+  backends: gui.BackendInfo[]
+  isMounted: boolean
   setTheme: (t: Theme) => void
   setColorScheme: (s: ColorScheme) => void
   setFontSize: (s: number) => void
+  setBackend: (name: string) => Promise<void>
 }) {
   return (
     <Dialog>
@@ -638,6 +652,37 @@ function SettingsDialog({
               <span>Large</span>
             </div>
           </div>
+
+          {backends.length > 0 && (
+            <>
+              <Separator />
+              <div className="space-y-2">
+                <Label className="text-sm">Mount Backend</Label>
+                <div className="flex gap-2">
+                  {backends.map((b) => (
+                    <Button
+                      key={b.name}
+                      size="sm"
+                      variant={backend === b.name ? 'default' : 'outline'}
+                      className="flex-1 text-xs"
+                      disabled={!b.available || isMounted}
+                      onClick={() => b.available && !isMounted && setBackend(b.name)}
+                      title={
+                        isMounted ? 'Unmount first to change backend'
+                        : !b.available ? 'Coming soon'
+                        : b.name
+                      }
+                    >
+                      {b.name}{!b.available && ' (coming soon)'}
+                    </Button>
+                  ))}
+                </div>
+                {isMounted && (
+                  <p className="text-[10px] text-muted-foreground">Unmount to change backend</p>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </DialogContent>
     </Dialog>

@@ -41,7 +41,21 @@ export namespace credential {
 }
 
 export namespace gui {
-	
+
+	export class BackendInfo {
+	    name: string;
+	    available: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new BackendInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.available = source["available"];
+	    }
+	}
 	export class LoginStatus {
 	    loggedIn: boolean;
 	    email: string;
@@ -64,11 +78,12 @@ export namespace gui {
 	    project: string[];
 	    zenMode: boolean;
 	    webdavAddr: string;
-	
+	    backend: string;
+
 	    static createFrom(source: any = {}) {
 	        return new MountStatus(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.mounted = source["mounted"];
@@ -76,6 +91,7 @@ export namespace gui {
 	        this.project = source["project"];
 	        this.zenMode = source["zenMode"];
 	        this.webdavAddr = source["webdavAddr"];
+	        this.backend = source["backend"];
 	    }
 	}
 

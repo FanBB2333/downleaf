@@ -33,9 +33,12 @@ export default function App() {
       theme={store.theme}
       colorScheme={store.colorScheme}
       fontSize={store.fontSize}
+      backend={store.backend}
+      backends={store.backends}
       setTheme={store.setTheme}
       setColorScheme={store.setColorScheme}
       setFontSize={store.setFontSize}
+      setBackend={store.setBackend}
       refreshProjects={store.refreshProjects}
       mount={(projects, mp, batch) =>
         store.mount(projects, mp, batch)

@@ -6,6 +6,9 @@ import {
   GetLogs,
   GetEnvDefaults,
   GetVersion,
+  GetBackend,
+  SetBackend,
+  ListBackends,
   Login,
   ListProjects,
   ListTags,
@@ -50,6 +53,8 @@ export function useStore() {
   const [envDefaults, setEnvDefaults] = useState<Record<string, string>>({})
   const [browserLoginSupported, setBrowserLoginSupported] = useState(false)
   const [savedCredentials, setSavedCredentials] = useState<credential.CredentialInfo[]>([])
+  const [backend, setBackendState] = useState('webdav')
+  const [backends, setBackends] = useState<gui.BackendInfo[]>([])
   const [theme, setThemeState] = useState<Theme>(() => {
     return (localStorage.getItem('downleaf-theme') as Theme) || 'light'
   })
@@ -87,6 +92,8 @@ export function useStore() {
     GetVersion().then(setVersion).catch(() => {})
     GetEnvDefaults().then(setEnvDefaults).catch(() => {})
     IsBrowserLoginSupported().then(setBrowserLoginSupported).catch(() => {})
+    GetBackend().then(setBackendState).catch(() => {})
+    ListBackends().then(b => setBackends(b || [])).catch(() => {})
     ListCredentials().then((creds) => setSavedCredentials(creds || [])).catch(() => {})
     GetLoginStatus().then((s) => {
       if (s.loggedIn) {
@@ -253,6 +260,15 @@ export function useStore() {
     setError('')
   }, [])
 
+  const setBackend = useCallback(async (name: string) => {
+    try {
+      await SetBackend(name)
+      setBackendState(name)
+    } catch (e: unknown) {
+      setError(String(e))
+    }
+  }, [])
+
   const clearLogs = useCallback(() => setLogs([]), [])
   const clearError = useCallback(() => setError(''), [])
 
@@ -271,9 +287,12 @@ export function useStore() {
     theme,
     colorScheme,
     fontSize,
+    backend,
+    backends,
     setTheme,
     setColorScheme,
     setFontSize,
+    setBackend,
     login,
     loginWithBrowser,
     loginWithCredential,
