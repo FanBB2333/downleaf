@@ -35,6 +35,9 @@ const TAG_LIGHT_TEXT: RGBColor = { r: 255, g: 255, b: 255 }
 const TAG_DARK_TEXT: RGBColor = { r: 23, g: 33, b: 48 }
 const TAG_LIGHT_SURFACE: RGBColor = { r: 255, g: 255, b: 255 }
 const TAG_DARK_SURFACE: RGBColor = { r: 15, g: 23, b: 42 }
+const MOUNT_BADGE_GREEN: RGBColor = { r: 126, g: 148, b: 118 }
+const MOUNT_BADGE_GREEN_DEEP: RGBColor = { r: 83, g: 104, b: 77 }
+const MOUNT_BADGE_GREEN_SOFT: RGBColor = { r: 228, g: 236, b: 224 }
 
 function parseHexColor(color: string): RGBColor | null {
   const normalized = color.trim()
@@ -64,8 +67,12 @@ function mixColors(base: RGBColor, overlay: RGBColor, overlayWeight: number): RG
   }
 }
 
-function toCssColor(color: RGBColor): string {
-  return `rgb(${color.r} ${color.g} ${color.b})`
+function toCssColor(color: RGBColor, alpha = 1): string {
+  if (alpha >= 1) {
+    return `rgb(${color.r} ${color.g} ${color.b})`
+  }
+
+  return `rgb(${color.r} ${color.g} ${color.b} / ${alpha})`
 }
 
 function relativeLuminance(color: RGBColor): number {
@@ -137,6 +144,29 @@ function getTagPillStyle(color: string, selected: boolean, resolvedTheme: 'light
     borderWidth: '1px',
     borderStyle: 'solid',
     borderColor: toCssColor(borderColor),
+  }
+}
+
+function getMountedBadgeStyle(resolvedTheme: 'light' | 'dark'): CSSProperties {
+  const start = resolvedTheme === 'dark'
+    ? mixColors(TAG_DARK_SURFACE, MOUNT_BADGE_GREEN, 0.34)
+    : MOUNT_BADGE_GREEN_SOFT
+  const end = resolvedTheme === 'dark'
+    ? mixColors(TAG_DARK_SURFACE, MOUNT_BADGE_GREEN_DEEP, 0.5)
+    : mixColors(TAG_LIGHT_SURFACE, MOUNT_BADGE_GREEN, 0.68)
+  const midpoint = mixColors(start, end, 0.5)
+  const preferredText = resolvedTheme === 'dark' ? TAG_LIGHT_TEXT : MOUNT_BADGE_GREEN_DEEP
+  const textColor = ensureContrast(preferredText, midpoint, 4.5)
+  const borderColor = ensureContrast(mixColors(end, preferredText, 0.18), midpoint, 1.35)
+  const shadowColor = resolvedTheme === 'dark'
+    ? mixColors(end, TAG_DARK_SURFACE, 0.3)
+    : mixColors(MOUNT_BADGE_GREEN, TAG_LIGHT_SURFACE, 0.18)
+
+  return {
+    backgroundImage: `linear-gradient(135deg, ${toCssColor(start)} 0%, ${toCssColor(end)} 100%)`,
+    color: toCssColor(textColor),
+    borderColor: toCssColor(borderColor, resolvedTheme === 'dark' ? 0.82 : 0.62),
+    boxShadow: `0 8px 20px ${toCssColor(shadowColor, resolvedTheme === 'dark' ? 0.34 : 0.14)}`,
   }
 }
 
@@ -475,8 +505,15 @@ export function MainPage({
         <div className="h-12 border-b border-border/50 flex items-center justify-end px-4 shrink-0 bg-background/60 backdrop-blur-md z-10 cursor-default" onMouseDown={onDragMouseDown}>
           <div className="flex items-center gap-1.5">
              {isMounted && mountStatus && (
-               <Badge variant="outline" className="gap-1.5 text-[11px] font-normal border-sage/40 text-sage mr-2 h-6 px-2 shadow-sm">
-                 <span className="w-1.5 h-1.5 rounded-full bg-sage inline-block animate-pulse-slow" />
+               <Badge
+                 variant="outline"
+                 className="gap-1.5 text-[11px] font-medium mr-2 h-6 px-2.5 border backdrop-blur-sm"
+                 style={getMountedBadgeStyle(resolvedTheme)}
+               >
+                 <span className="relative inline-flex h-1.5 w-1.5 shrink-0">
+                   <span className="absolute inset-0 rounded-full bg-current opacity-40 animate-ping" />
+                   <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-current" />
+                 </span>
                  Mounted
                </Badge>
              )}
