@@ -21,7 +21,12 @@ type Backend interface {
 	Start(cfg Config) error
 
 	// Stop gracefully shuts down: flush dirty files, disconnect, unmount.
+	// Returns mount.ErrMountBusy if the mount point is busy.
 	Stop() error
+
+	// ForceStop forces shutdown even if the mount point is busy.
+	// Warning: May cause data loss if files are being written.
+	ForceStop() error
 
 	// FlushAll uploads all dirty cached files to the remote.
 	FlushAll() (flushed, errors int)
@@ -29,6 +34,9 @@ type Backend interface {
 	// DirtySummary returns stats about locally modified files.
 	DirtySummary() []FileStat
 }
+
+// ErrMountBusy indicates the mount point is busy and cannot be unmounted gracefully.
+var ErrMountBusy = fmt.Errorf("mount point is busy (files may be in use)")
 
 // Config holds all the parameters a backend needs to start.
 type Config struct {

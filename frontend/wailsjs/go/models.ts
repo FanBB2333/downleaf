@@ -128,6 +128,7 @@ export namespace model {
 	export class Tag {
 	    _id: string;
 	    name: string;
+	    color: string;
 	    project_ids: string[];
 	
 	    static createFrom(source: any = {}) {
@@ -138,6 +139,7 @@ export namespace model {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this._id = source["_id"];
 	        this.name = source["name"];
+	        this.color = source["color"];
 	        this.project_ids = source["project_ids"];
 	    }
 	}

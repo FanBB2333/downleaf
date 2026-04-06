@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { RotateCw, Terminal, Search, Folder, Library } from 'lucide-react'
+import { RotateCw, Terminal, Search, Folder, Library, AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -14,6 +14,8 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogDescription,
+  DialogFooter,
 } from '@/components/ui/dialog'
 import {
   DropdownMenu,
@@ -48,6 +50,7 @@ interface MainPageProps {
   refreshProjects: () => Promise<void>
   mount: (projects: string[], mountpoint: string, zenMode: boolean) => Promise<void>
   unmount: () => Promise<void>
+  forceUnmount: () => Promise<void>
   sync: () => Promise<void>
   openMountpoint: () => Promise<void>
   clearLogs: () => void
@@ -76,6 +79,7 @@ export function MainPage({
   refreshProjects,
   mount,
   unmount,
+  forceUnmount,
   sync,
   openMountpoint,
   clearLogs,
@@ -91,6 +95,7 @@ export function MainPage({
   const [mountpoint, setMountpoint] = useState('~/downleaf')
   const [zenMode, setZenMode] = useState(true)
   const [logPanelHeight, setLogPanelHeight] = useState(200)
+  const [showForceUnmountDialog, setShowForceUnmountDialog] = useState(false)
   const logEndRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const isDraggingRef = useRef(false)
@@ -146,6 +151,27 @@ export function MainPage({
   const handleMount = async () => {
     clearError()
     await mount(selectedProjects, mountpoint, zenMode)
+  }
+
+  const handleUnmount = async () => {
+    clearError()
+    try {
+      await unmount()
+    } catch (e: unknown) {
+      if (String(e).includes('MOUNT_BUSY')) {
+        setShowForceUnmountDialog(true)
+      }
+    }
+  }
+
+  const handleForceUnmount = async () => {
+    setShowForceUnmountDialog(false)
+    clearError()
+    try {
+      await forceUnmount()
+    } catch {
+      // Error is already set by the store
+    }
   }
 
   const toggleViewMode = () => {
@@ -248,9 +274,19 @@ export function MainPage({
                     disabled={isMounted}
                     className={`text-[11px] px-2 py-0.5 rounded-full transition-all ${
                       selectedTags.includes(tag._id)
-                        ? 'bg-primary text-primary-foreground font-medium'
-                        : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
+                        ? 'font-medium'
+                        : 'hover:opacity-80'
                     }`}
+                    style={tag.color ? {
+                      backgroundColor: selectedTags.includes(tag._id) ? tag.color : `${tag.color}33`,
+                      color: selectedTags.includes(tag._id) ? '#fff' : tag.color,
+                      borderWidth: '1px',
+                      borderStyle: 'solid',
+                      borderColor: tag.color,
+                    } : {
+                      backgroundColor: selectedTags.includes(tag._id) ? 'hsl(var(--primary))' : 'hsl(var(--muted) / 0.6)',
+                      color: selectedTags.includes(tag._id) ? 'hsl(var(--primary-foreground))' : 'hsl(var(--muted-foreground))',
+                    }}
                   >
                     {tag.name}
                   </button>
@@ -437,8 +473,8 @@ export function MainPage({
                          {loading === 'sync' ? 'Syncing...' : 'Sync Now'}
                        </Button>
                      )}
-                     <Button variant="destructive" className="shadow-sm" disabled={loading === 'unmount'} onClick={unmount}>
-                       {loading === 'unmount' ? 'Unmounting...' : 'Unmount'}
+                     <Button variant="destructive" className="shadow-sm" disabled={loading === 'unmount' || loading === 'force-unmount'} onClick={handleUnmount}>
+                       {loading === 'unmount' || loading === 'force-unmount' ? 'Unmounting...' : 'Unmount'}
                      </Button>
                    </>
                  ) : (
@@ -476,6 +512,33 @@ export function MainPage({
           </div>
         </div>
       </div>
+
+      {/* Force Unmount Confirmation Dialog */}
+      <Dialog open={showForceUnmountDialog} onOpenChange={setShowForceUnmountDialog}>
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="w-5 h-5" />
+              Force Unmount
+            </DialogTitle>
+            <DialogDescription>
+              The mount point is currently busy. Another process (such as a terminal or file browser) may be accessing files in the mounted directory.
+              <br /><br />
+              <strong className="text-foreground">Force unmounting may cause data loss</strong> if files are currently being written or read.
+              <br /><br />
+              Please close any applications accessing the mount point and try again, or proceed with force unmount at your own risk.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowForceUnmountDialog(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleForceUnmount}>
+              Force Unmount
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

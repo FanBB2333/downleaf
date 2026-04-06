@@ -2,6 +2,7 @@ package webdav
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"io/fs"
 	"log"
@@ -1333,7 +1334,51 @@ func MountNative(addr, mountpoint string) error {
 	}
 }
 
+// ErrMountBusy indicates the mount point is busy (files are in use).
+var ErrMountBusy = fmt.Errorf("mount point is busy")
+
 // Unmount unmounts the filesystem.
+// Returns ErrMountBusy if the mount point is busy (e.g., terminal is accessing it).
 func Unmount(mountpoint string) error {
-	return exec.Command("umount", mountpoint).Run()
+	cmd := exec.Command("umount", mountpoint)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		outStr := string(output)
+		// Check for "Resource busy" or "device is busy" errors
+		if strings.Contains(outStr, "busy") || strings.Contains(outStr, "Busy") ||
+			strings.Contains(strings.ToLower(outStr), "resource busy") {
+			return ErrMountBusy
+		}
+		return fmt.Errorf("unmount failed: %s", strings.TrimSpace(outStr))
+	}
+	return nil
+}
+
+// ForceUnmount forcefully unmounts the filesystem even if it's busy.
+// Warning: This may cause data loss if files are being written.
+func ForceUnmount(mountpoint string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		// On macOS, use diskutil for more reliable force unmount
+		cmd := exec.Command("diskutil", "unmount", "force", mountpoint)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			// Fallback to umount -f
+			cmd2 := exec.Command("umount", "-f", mountpoint)
+			output2, err2 := cmd2.CombinedOutput()
+			if err2 != nil {
+				return fmt.Errorf("force unmount failed: %s; %s", strings.TrimSpace(string(output)), strings.TrimSpace(string(output2)))
+			}
+		}
+		return nil
+	case "linux":
+		cmd := exec.Command("umount", "-f", mountpoint)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("force unmount failed: %s", strings.TrimSpace(string(output)))
+		}
+		return nil
+	default:
+		return exec.Command("umount", "-f", mountpoint).Run()
+	}
 }

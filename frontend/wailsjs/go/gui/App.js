@@ -6,6 +6,10 @@ export function DeleteCredential(arg1) {
   return window['go']['gui']['App']['DeleteCredential'](arg1);
 }
 
+export function ForceUnmount() {
+  return window['go']['gui']['App']['ForceUnmount']();
+}
+
 export function GetBackend() {
   return window['go']['gui']['App']['GetBackend']();
 }

@@ -255,6 +255,7 @@ func (a *App) Mount(projectNames []string, mountpoint string, zenMode bool) erro
 }
 
 // Unmount stops the mount backend (flushes, disconnects, unmounts).
+// Returns a special error message if the mount point is busy.
 func (a *App) Unmount() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -264,10 +265,37 @@ func (a *App) Unmount() error {
 	}
 
 	if err := a.backend.Stop(); err != nil {
+		if err == mount.ErrMountBusy {
+			return fmt.Errorf("MOUNT_BUSY: mount point is busy - files may be in use by another process (e.g., terminal). Close any applications accessing the mount point and try again, or use Force Eject (may cause data loss)")
+		}
 		return fmt.Errorf("unmount failed: %w", err)
 	}
 
 	log.Printf("Unmounted %s", a.mountpoint)
+	a.mounted = false
+	a.backend = nil
+
+	wailsRuntime.EventsEmit(a.ctx, "mountStatusChanged")
+	return nil
+}
+
+// ForceUnmount forces the mount backend to stop even if the mount point is busy.
+// Warning: This may cause data loss if files are being written.
+func (a *App) ForceUnmount() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if !a.mounted || a.backend == nil {
+		return fmt.Errorf("not mounted")
+	}
+
+	log.Printf("Force unmounting %s (may cause data loss)...", a.mountpoint)
+
+	if err := a.backend.ForceStop(); err != nil {
+		return fmt.Errorf("force unmount failed: %w", err)
+	}
+
+	log.Printf("Force unmounted %s", a.mountpoint)
 	a.mounted = false
 	a.backend = nil
 

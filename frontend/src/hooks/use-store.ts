@@ -14,6 +14,7 @@ import {
   ListTags,
   Mount,
   Unmount,
+  ForceUnmount,
   Sync,
   OpenMountpoint,
   IsBrowserLoginSupported,
@@ -226,7 +227,28 @@ export function useStore() {
       await Unmount()
       await GetMountStatus().then(setMountStatus)
     } catch (e: unknown) {
+      const errStr = String(e)
+      // Check if mount point is busy - return special indicator
+      if (errStr.includes('MOUNT_BUSY')) {
+        setError(errStr)
+        throw new Error('MOUNT_BUSY')
+      }
+      setError(errStr)
+      throw e
+    } finally {
+      setLoading('')
+    }
+  }, [])
+
+  const forceUnmount = useCallback(async () => {
+    setLoading('force-unmount')
+    setError('')
+    try {
+      await ForceUnmount()
+      await GetMountStatus().then(setMountStatus)
+    } catch (e: unknown) {
       setError(String(e))
+      throw e
     } finally {
       setLoading('')
     }
@@ -300,6 +322,7 @@ export function useStore() {
     refreshProjects,
     mount,
     unmount,
+    forceUnmount,
     sync,
     openMountpoint,
     logout,

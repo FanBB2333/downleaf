@@ -2,6 +2,7 @@ package mount
 
 import (
 	"log"
+	"strings"
 
 	dav "github.com/FanBB2333/downleaf/internal/webdav"
 )
@@ -42,7 +43,12 @@ func (w *webdavBackend) Start(cfg Config) error {
 	if err := dav.MountNative(cfg.Addr, cfg.Mountpoint); err != nil {
 		log.Printf("Auto-mount failed: %v (mount manually via http://%s)", err, cfg.Addr)
 	} else {
-		log.Printf("Mounted at %s", cfg.Mountpoint)
+		// Log with project names if filters are specified
+		if len(cfg.ProjectFilters) > 0 {
+			log.Printf("Mounted at %s (projects: %s)", cfg.Mountpoint, strings.Join(cfg.ProjectFilters, ", "))
+		} else {
+			log.Printf("Mounted at %s (all projects)", cfg.Mountpoint)
+		}
 	}
 
 	// Block until the server returns (only on error)
@@ -54,7 +60,19 @@ func (w *webdavBackend) Stop() error {
 		w.ofs.FlushAll()
 		w.ofs.DisconnectAll()
 	}
-	return dav.Unmount(w.mountpoint)
+	err := dav.Unmount(w.mountpoint)
+	if err == dav.ErrMountBusy {
+		return ErrMountBusy
+	}
+	return err
+}
+
+func (w *webdavBackend) ForceStop() error {
+	if w.ofs != nil {
+		w.ofs.FlushAll()
+		w.ofs.DisconnectAll()
+	}
+	return dav.ForceUnmount(w.mountpoint)
 }
 
 func (w *webdavBackend) FlushAll() (flushed, errors int) {

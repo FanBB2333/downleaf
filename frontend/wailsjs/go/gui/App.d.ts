@@ -6,6 +6,8 @@ import {model} from '../models';
 
 export function DeleteCredential(arg1:string):Promise<void>;
 
+export function ForceUnmount():Promise<void>;
+
 export function GetBackend():Promise<string>;
 
 export function GetEnvDefaults():Promise<Record<string, string>>;

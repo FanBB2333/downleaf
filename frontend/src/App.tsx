@@ -44,6 +44,7 @@ export default function App() {
         store.mount(projects, mp, batch)
       }
       unmount={store.unmount}
+      forceUnmount={store.forceUnmount}
       sync={store.sync}
       openMountpoint={store.openMountpoint}
       clearLogs={store.clearLogs}

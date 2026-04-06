@@ -19,6 +19,7 @@ type Project struct {
 type Tag struct {
 	ID         string   `json:"_id"`
 	Name       string   `json:"name"`
+	Color      string   `json:"color"` // Overleaf tag color (e.g., "#FF0000")
 	ProjectIDs []string `json:"project_ids"`
 }
 
