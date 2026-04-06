@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, type CSSProperties } from 'react'
 import { RotateCw, Terminal, Search, Folder, Library, AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -28,6 +28,117 @@ import { useWindowDrag } from '@/hooks/use-window-drag'
 import type { gui } from '../../wailsjs/go/models'
 import type { model } from '../../wailsjs/go/models'
 import type { Theme, ColorScheme } from '@/hooks/use-store'
+
+type RGBColor = { r: number; g: number; b: number }
+
+const TAG_LIGHT_TEXT: RGBColor = { r: 255, g: 255, b: 255 }
+const TAG_DARK_TEXT: RGBColor = { r: 23, g: 33, b: 48 }
+const TAG_LIGHT_SURFACE: RGBColor = { r: 255, g: 255, b: 255 }
+const TAG_DARK_SURFACE: RGBColor = { r: 15, g: 23, b: 42 }
+
+function parseHexColor(color: string): RGBColor | null {
+  const normalized = color.trim()
+  const hex = normalized.startsWith('#') ? normalized.slice(1) : normalized
+  const fullHex = hex.length === 3
+    ? hex.split('').map((char) => `${char}${char}`).join('')
+    : hex
+
+  if (!/^[0-9a-fA-F]{6}$/.test(fullHex)) {
+    return null
+  }
+
+  const value = parseInt(fullHex, 16)
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255,
+  }
+}
+
+function mixColors(base: RGBColor, overlay: RGBColor, overlayWeight: number): RGBColor {
+  const weight = Math.max(0, Math.min(1, overlayWeight))
+  return {
+    r: Math.round(base.r + (overlay.r - base.r) * weight),
+    g: Math.round(base.g + (overlay.g - base.g) * weight),
+    b: Math.round(base.b + (overlay.b - base.b) * weight),
+  }
+}
+
+function toCssColor(color: RGBColor): string {
+  return `rgb(${color.r} ${color.g} ${color.b})`
+}
+
+function relativeLuminance(color: RGBColor): number {
+  const channels = [color.r, color.g, color.b].map((value) => {
+    const normalized = value / 255
+    return normalized <= 0.03928
+      ? normalized / 12.92
+      : ((normalized + 0.055) / 1.055) ** 2.4
+  })
+
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+}
+
+function contrastRatio(foreground: RGBColor, background: RGBColor): number {
+  const lighter = Math.max(relativeLuminance(foreground), relativeLuminance(background))
+  const darker = Math.min(relativeLuminance(foreground), relativeLuminance(background))
+  return (lighter + 0.05) / (darker + 0.05)
+}
+
+function getReadableTextColor(background: RGBColor): RGBColor {
+  return contrastRatio(TAG_LIGHT_TEXT, background) >= contrastRatio(TAG_DARK_TEXT, background)
+    ? TAG_LIGHT_TEXT
+    : TAG_DARK_TEXT
+}
+
+function ensureContrast(foreground: RGBColor, background: RGBColor, target: number): RGBColor {
+  if (contrastRatio(foreground, background) >= target) {
+    return foreground
+  }
+
+  const fallback = getReadableTextColor(background)
+  for (const weight of [0.16, 0.32, 0.48, 0.64, 0.8]) {
+    const adjusted = mixColors(foreground, fallback, weight)
+    if (contrastRatio(adjusted, background) >= target) {
+      return adjusted
+    }
+  }
+
+  return fallback
+}
+
+function getTagPillStyle(color: string, selected: boolean, resolvedTheme: 'light' | 'dark'): CSSProperties | undefined {
+  const tagColor = parseHexColor(color)
+  if (!tagColor) {
+    return undefined
+  }
+
+  if (selected) {
+    const textColor = getReadableTextColor(tagColor)
+    const borderColor = ensureContrast(mixColors(tagColor, textColor, 0.16), tagColor, 1.35)
+    return {
+      backgroundColor: toCssColor(tagColor),
+      color: toCssColor(textColor),
+      borderWidth: '1px',
+      borderStyle: 'solid',
+      borderColor: toCssColor(borderColor),
+    }
+  }
+
+  const surface = resolvedTheme === 'dark' ? TAG_DARK_SURFACE : TAG_LIGHT_SURFACE
+  const backgroundColor = mixColors(surface, tagColor, resolvedTheme === 'dark' ? 0.28 : 0.2)
+  const textColor = ensureContrast(tagColor, backgroundColor, 4.5)
+  const borderBase = mixColors(surface, tagColor, resolvedTheme === 'dark' ? 0.48 : 0.34)
+  const borderColor = ensureContrast(borderBase, backgroundColor, 2.2)
+
+  return {
+    backgroundColor: toCssColor(backgroundColor),
+    color: toCssColor(textColor),
+    borderWidth: '1px',
+    borderStyle: 'solid',
+    borderColor: toCssColor(borderColor),
+  }
+}
 
 interface MainPageProps {
   version: string
@@ -101,6 +212,9 @@ export function MainPage({
   const isDraggingRef = useRef(false)
   const isMounted = mountStatus?.mounted ?? false
   const onDragMouseDown = useWindowDrag()
+  const resolvedTheme = theme === 'system'
+    ? (document.documentElement.classList.contains('dark') ? 'dark' : 'light')
+    : theme
 
   const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -260,37 +374,35 @@ export function MainPage({
                 >
                   All
                 </button>
-                {tags.map(tag => (
-                  <button
-                    key={tag._id}
-                    onClick={() => {
-                      if (isMounted) return
-                      setSelectedTags(prev =>
-                        prev.includes(tag._id)
-                          ? prev.filter(id => id !== tag._id)
-                          : [...prev, tag._id]
-                      )
-                    }}
-                    disabled={isMounted}
-                    className={`text-[11px] px-2 py-0.5 rounded-full transition-all ${
-                      selectedTags.includes(tag._id)
-                        ? 'font-medium'
-                        : 'hover:opacity-80'
-                    }`}
-                    style={tag.color ? {
-                      backgroundColor: selectedTags.includes(tag._id) ? tag.color : `${tag.color}33`,
-                      color: selectedTags.includes(tag._id) ? '#fff' : tag.color,
-                      borderWidth: '1px',
-                      borderStyle: 'solid',
-                      borderColor: tag.color,
-                    } : {
-                      backgroundColor: selectedTags.includes(tag._id) ? 'hsl(var(--primary))' : 'hsl(var(--muted) / 0.6)',
-                      color: selectedTags.includes(tag._id) ? 'hsl(var(--primary-foreground))' : 'hsl(var(--muted-foreground))',
-                    }}
-                  >
-                    {tag.name}
-                  </button>
-                ))}
+                {tags.map(tag => {
+                  const isSelected = selectedTags.includes(tag._id)
+
+                  return (
+                    <button
+                      key={tag._id}
+                      onClick={() => {
+                        if (isMounted) return
+                        setSelectedTags(prev =>
+                          prev.includes(tag._id)
+                            ? prev.filter(id => id !== tag._id)
+                            : [...prev, tag._id]
+                        )
+                      }}
+                      disabled={isMounted}
+                      className={`text-[11px] px-2 py-0.5 rounded-full transition-all ${
+                        isSelected
+                          ? 'font-medium'
+                          : 'hover:opacity-80'
+                      }`}
+                      style={tag.color ? getTagPillStyle(tag.color, isSelected, resolvedTheme) : {
+                        backgroundColor: isSelected ? 'hsl(var(--primary))' : 'hsl(var(--muted) / 0.6)',
+                        color: isSelected ? 'hsl(var(--primary-foreground))' : 'hsl(var(--muted-foreground))',
+                      }}
+                    >
+                      {tag.name}
+                    </button>
+                  )
+                })}
               </div>
             )}
 
