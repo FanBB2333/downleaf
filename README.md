@@ -168,6 +168,28 @@ Browser login is available on all platforms:
 
 If auto-mount fails, the CLI prints manual mounting instructions and the WebDAV URL.
 
+### macOS metadata files on mounted projects
+
+Finder may create metadata files such as `.DS_Store` and `._*` while browsing mounted projects.
+
+- The recommended fix is Downleaf's `Ignore macOS Dotfiles` setting, which prevents those files from syncing to Overleaf.
+- As an optional system-wide mitigation, you can try:
+
+```bash
+defaults write com.apple.desktopservices DSDontWriteNetworkStores -bool TRUE
+```
+
+Log out and log back in after changing it. Apple documents this for SMB shares; it may reduce `.DS_Store` creation on mounted network volumes, but it is not a complete replacement for Downleaf's ignore setting.
+
+- `DSDontWriteUSBStores` is not relevant for Downleaf mounts:
+
+```bash
+defaults write com.apple.desktopservices DSDontWriteUSBStores -bool TRUE
+```
+
+This only targets removable USB storage, while Downleaf mounts projects through WebDAV.
+- Neither setting reliably prevents `._*` AppleDouble files, so keep the Downleaf ignore option enabled if you want to avoid syncing macOS metadata files.
+
 ## How It Works
 
 1. Authenticates with Overleaf using session cookies
