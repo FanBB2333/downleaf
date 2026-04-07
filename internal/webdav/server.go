@@ -788,6 +788,24 @@ func (o *OverleafFS) statTempFile(name string) (os.FileInfo, error) {
 	return &fileInfo{name: base, size: int64(len(data)), modTime: time.Now()}, nil
 }
 
+func (o *OverleafFS) statIgnoredFile(name string) (os.FileInfo, error) {
+	parts := strings.Split(strings.TrimPrefix(path.Clean(name), "/"), "/")
+	if len(parts) < 2 {
+		return nil, os.ErrNotExist
+	}
+	project, ok := o.findProjectByName(parts[0])
+	if !ok {
+		return nil, os.ErrNotExist
+	}
+	base := path.Base(name)
+	cacheKey := project.ID + "/ign-" + base
+	data, ok := o.Cache.Get(cacheKey)
+	if !ok {
+		return nil, os.ErrNotExist
+	}
+	return &fileInfo{name: base, size: int64(len(data)), modTime: time.Now()}, nil
+}
+
 // isTempFile returns true for editor temp files (atomic save pattern).
 func isTempFile(name string) bool {
 	// Patterns: file.ext.tmp.PID.TIMESTAMP, .file.swp, file~, #file#
@@ -814,6 +832,25 @@ func (o *OverleafFS) createFile(name string) (gowebdav.File, error) {
 	}
 	if !parent.isDir() || parent.isRoot {
 		return nil, os.ErrPermission
+	}
+
+	// Ignored files (macOS ._*, .DS_Store, etc.): keep in memory only
+	if o.isIgnored(base, false) {
+		tmpID := "ign-" + base
+		cacheKey := parent.project.ID + "/" + tmpID
+		o.Cache.Set(cacheKey, []byte{})
+		return &regularFile{
+			ofs:       o,
+			info:      &fileInfo{name: base, modTime: time.Now()},
+			projectID: parent.project.ID,
+			folderID:  parent.folder.ID,
+			entityID:  tmpID,
+			name:      base,
+			isDoc:     false,
+			content:   []byte{},
+			writable:  true,
+			tempFile:  true,
+		}, nil
 	}
 
 	// Temp files from editors: keep in memory only, never upload to Overleaf
@@ -1012,6 +1049,10 @@ func (o *OverleafFS) Stat(ctx context.Context, name string) (os.FileInfo, error)
 	// Temp files: check cache directly
 	if isTempFile(name) {
 		return o.statTempFile(name)
+	}
+	// Ignored files: check cache directly
+	if o.isIgnored(path.Base(name), false) {
+		return o.statIgnoredFile(name)
 	}
 
 	info, err := o.resolveWithCache(name)

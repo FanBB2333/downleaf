@@ -10,10 +10,14 @@ import (
 
 // defaultPatterns are always active, covering common OS/editor junk files.
 var defaultPatterns = []string{
-	".DS_Store",
-	"._*",
 	"Thumbs.db",
 	"desktop.ini",
+}
+
+// macOSPatterns are macOS-specific dotfiles that pollute Overleaf projects.
+var macOSPatterns = []string{
+	".DS_Store",
+	"._*",
 	".Spotlight-V100",
 	".Trashes",
 }
@@ -33,11 +37,22 @@ type Matcher struct {
 	patterns []pattern
 }
 
-// New creates a Matcher with only the built-in default patterns.
+// New creates a Matcher with default patterns and macOS patterns enabled.
 func New() *Matcher {
+	return NewWithOptions(true)
+}
+
+// NewWithOptions creates a Matcher. If ignoreMacOS is true, macOS-specific
+// dotfile patterns (._*, .DS_Store, etc.) are included.
+func NewWithOptions(ignoreMacOS bool) *Matcher {
 	m := &Matcher{}
 	for _, p := range defaultPatterns {
 		m.addLine(p)
+	}
+	if ignoreMacOS {
+		for _, p := range macOSPatterns {
+			m.addLine(p)
+		}
 	}
 	return m
 }
@@ -45,22 +60,29 @@ func New() *Matcher {
 // ParseFile reads a .dlignore file and returns a Matcher.
 // Built-in defaults are prepended; user rules from the file are appended.
 // If the file does not exist, only defaults are returned (no error).
-func ParseFile(path string) (*Matcher, error) {
+// ignoreMacOS controls whether macOS dotfile patterns are included.
+func ParseFile(path string, ignoreMacOS bool) (*Matcher, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return New(), nil
+			return NewWithOptions(ignoreMacOS), nil
 		}
 		return nil, err
 	}
 	defer f.Close()
-	return ParseReader(f), nil
+	return ParseReaderWithOptions(f, ignoreMacOS), nil
 }
 
 // ParseReader reads ignore rules from a reader.
-// Built-in defaults are prepended.
+// Built-in defaults and macOS patterns are prepended.
 func ParseReader(r io.Reader) *Matcher {
-	m := New()
+	return ParseReaderWithOptions(r, true)
+}
+
+// ParseReaderWithOptions reads ignore rules from a reader.
+// Built-in defaults are prepended; ignoreMacOS controls macOS patterns.
+func ParseReaderWithOptions(r io.Reader, ignoreMacOS bool) *Matcher {
+	m := NewWithOptions(ignoreMacOS)
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		m.addLine(scanner.Text())

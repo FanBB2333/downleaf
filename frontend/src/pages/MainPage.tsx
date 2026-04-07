@@ -189,7 +189,7 @@ interface MainPageProps {
   setFontSize: (s: number) => void
   setBackend: (name: string) => Promise<void>
   refreshProjects: () => Promise<void>
-  mount: (projects: string[], mountpoint: string, zenMode: boolean) => Promise<void>
+  mount: (projects: string[], mountpoint: string, zenMode: boolean, ignoreMacOS: boolean) => Promise<void>
   unmount: () => Promise<void>
   forceUnmount: () => Promise<void>
   sync: () => Promise<void>
@@ -235,6 +235,9 @@ export function MainPage({
   const [searchQuery, setSearchQuery] = useState('')
   const [mountpoint, setMountpoint] = useState('~/downleaf')
   const [zenMode, setZenMode] = useState(true)
+  const [ignoreMacOS, setIgnoreMacOS] = useState(() => {
+    return localStorage.getItem('downleaf-ignore-macos') !== 'false'
+  })
   const [logPanelHeight, setLogPanelHeight] = useState(200)
   const [showForceUnmountDialog, setShowForceUnmountDialog] = useState(false)
   const logEndRef = useRef<HTMLDivElement>(null)
@@ -294,7 +297,7 @@ export function MainPage({
 
   const handleMount = async () => {
     clearError()
-    await mount(selectedProjects, mountpoint, zenMode)
+    await mount(selectedProjects, mountpoint, zenMode, ignoreMacOS)
   }
 
   const handleUnmount = async () => {
@@ -517,7 +520,20 @@ export function MainPage({
                  Mounted
                </Badge>
              )}
-             <SettingsDialog theme={theme} colorScheme={colorScheme} fontSize={fontSize} backend={backend} backends={backends} isMounted={isMounted} setTheme={setTheme} setColorScheme={setColorScheme} setFontSize={setFontSize} setBackend={setBackend} />
+             <SettingsDialog
+               theme={theme}
+               colorScheme={colorScheme}
+               fontSize={fontSize}
+               backend={backend}
+               backends={backends}
+               isMounted={isMounted}
+               ignoreMacOS={ignoreMacOS}
+               setTheme={setTheme}
+               setColorScheme={setColorScheme}
+               setFontSize={setFontSize}
+               setBackend={setBackend}
+               setIgnoreMacOS={setIgnoreMacOS}
+             />
 
              <DropdownMenu>
                <DropdownMenuTrigger className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground px-2 py-1.5 rounded-md hover:bg-muted/60 transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -779,10 +795,12 @@ function SettingsDialog({
   backend,
   backends,
   isMounted,
+  ignoreMacOS,
   setTheme,
   setColorScheme,
   setFontSize,
   setBackend,
+  setIgnoreMacOS,
 }: {
   theme: Theme
   colorScheme: ColorScheme
@@ -790,10 +808,12 @@ function SettingsDialog({
   backend: string
   backends: gui.BackendInfo[]
   isMounted: boolean
+  ignoreMacOS: boolean
   setTheme: (t: Theme) => void
   setColorScheme: (s: ColorScheme) => void
   setFontSize: (s: number) => void
   setBackend: (name: string) => Promise<void>
+  setIgnoreMacOS: (v: boolean) => void
 }) {
   return (
     <Dialog>
@@ -899,6 +919,31 @@ function SettingsDialog({
               </div>
             </>
           )}
+
+          <Separator />
+
+          <div className="space-y-2">
+            <div className="flex items-center space-x-3 rounded-lg border border-border/50 bg-muted/40 px-3 py-2.5 transition-colors hover:bg-muted/60">
+              <Switch
+                id="settings-ignore-macos"
+                checked={ignoreMacOS}
+                onCheckedChange={(v) => {
+                  setIgnoreMacOS(v)
+                  localStorage.setItem('downleaf-ignore-macos', String(v))
+                }}
+                disabled={isMounted}
+              />
+              <Label htmlFor="settings-ignore-macos" className="cursor-pointer flex-1 text-sm font-medium">
+                Ignore macOS Dotfiles
+                <p className="mt-0.5 text-xs font-normal leading-snug text-muted-foreground">
+                  Skip ._*, .DS_Store and other macOS files during sync.
+                </p>
+              </Label>
+            </div>
+            {isMounted && (
+              <p className="text-[10px] text-muted-foreground">Unmount to change sync ignore settings</p>
+            )}
+          </div>
         </div>
       </DialogContent>
     </Dialog>

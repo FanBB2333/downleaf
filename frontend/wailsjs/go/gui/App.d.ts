@@ -36,7 +36,7 @@ export function LoginWithBrowser(arg1:string):Promise<gui.LoginStatus>;
 
 export function LoginWithCredential(arg1:string):Promise<gui.LoginStatus>;
 
-export function Mount(arg1:Array<string>,arg2:string,arg3:boolean):Promise<void>;
+export function Mount(arg1:Array<string>,arg2:string,arg3:boolean,arg4:boolean):Promise<void>;
 
 export function OpenMountpoint():Promise<void>;
 

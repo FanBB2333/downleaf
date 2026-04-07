@@ -115,12 +115,25 @@ func TestPathWithSlash(t *testing.T) {
 }
 
 func TestParseFileMissing(t *testing.T) {
-	m, err := ParseFile("/nonexistent/.dlignore")
+	m, err := ParseFile("/nonexistent/.dlignore", true)
 	if err != nil {
 		t.Fatalf("ParseFile should not error on missing file: %v", err)
 	}
 	// Should still have defaults
 	if !m.Match(".DS_Store", false) {
 		t.Error(".DS_Store should be ignored by defaults")
+	}
+}
+
+func TestParseFileMissingWithoutMacOS(t *testing.T) {
+	m, err := ParseFile("/nonexistent/.dlignore", false)
+	if err != nil {
+		t.Fatalf("ParseFile should not error on missing file: %v", err)
+	}
+	if m.Match(".DS_Store", false) {
+		t.Error(".DS_Store should not be ignored when macOS ignores are disabled")
+	}
+	if !m.Match("Thumbs.db", false) {
+		t.Error("Thumbs.db should still be ignored by defaults")
 	}
 }

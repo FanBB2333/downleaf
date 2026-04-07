@@ -66,8 +66,8 @@ export function LoginWithCredential(arg1) {
   return window['go']['gui']['App']['LoginWithCredential'](arg1);
 }
 
-export function Mount(arg1, arg2, arg3) {
-  return window['go']['gui']['App']['Mount'](arg1, arg2, arg3);
+export function Mount(arg1, arg2, arg3, arg4) {
+  return window['go']['gui']['App']['Mount'](arg1, arg2, arg3, arg4);
 }
 
 export function OpenMountpoint() {

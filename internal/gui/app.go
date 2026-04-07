@@ -197,7 +197,7 @@ func (a *App) ListTags() ([]model.Tag, error) {
 }
 
 // Mount starts the mount backend and mounts the filesystem.
-func (a *App) Mount(projectNames []string, mountpoint string, zenMode bool) error {
+func (a *App) Mount(projectNames []string, mountpoint string, zenMode bool, ignoreMacOS bool) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -222,10 +222,10 @@ func (a *App) Mount(projectNames []string, mountpoint string, zenMode bool) erro
 	}
 
 	// Load .dlignore from mountpoint directory
-	igMatcher, igErr := ignore.ParseFile(filepath.Join(mountpoint, ".dlignore"))
+	igMatcher, igErr := ignore.ParseFile(filepath.Join(mountpoint, ".dlignore"), ignoreMacOS)
 	if igErr != nil {
 		log.Printf("warning: failed to parse .dlignore: %v", igErr)
-		igMatcher = ignore.New()
+		igMatcher = ignore.NewWithOptions(ignoreMacOS)
 	}
 
 	cfg := mount.Config{

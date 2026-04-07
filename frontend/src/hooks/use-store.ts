@@ -207,11 +207,11 @@ export function useStore() {
     }
   }, [])
 
-  const mount = useCallback(async (projectNames: string[], mountpoint: string, zenMode: boolean) => {
+  const mount = useCallback(async (projectNames: string[], mountpoint: string, zenMode: boolean, ignoreMacOS: boolean) => {
     setLoading('mount')
     setError('')
     try {
-      await Mount(projectNames, mountpoint, zenMode)
+      await Mount(projectNames, mountpoint, zenMode, ignoreMacOS)
       await GetMountStatus().then(setMountStatus)
     } catch (e: unknown) {
       setError(String(e))
