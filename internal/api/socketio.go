@@ -227,6 +227,13 @@ func (s *SocketIOClient) JoinDoc(projectID, docID string) (string, int, error) {
 					return "", 0, fmt.Errorf("parse doc lines: %w", err)
 				}
 
+				// Overleaf encodes UTF-8 bytes as Latin-1 codepoints via
+				// unescape(encodeURIComponent(text)). Reverse by extracting
+				// the low byte of each rune and reinterpreting as UTF-8.
+				for i, line := range lines {
+					lines[i] = decodeWebsocketUTF8(line)
+				}
+
 				var version int
 				json.Unmarshal(response[2], &version)
 
@@ -343,6 +350,17 @@ func parseCookieHeader(header string) (string, string, bool) {
 		return "", "", false
 	}
 	return strings.TrimSpace(kv[0]), strings.TrimSpace(kv[1]), true
+}
+
+// decodeWebsocketUTF8 reverses Overleaf's server-side encoding where UTF-8
+// bytes are stored as Latin-1 codepoints (JS: unescape(encodeURIComponent(text))).
+// Each rune in the input represents a single byte of the original UTF-8 text.
+func decodeWebsocketUTF8(s string) string {
+	b := make([]byte, 0, len(s))
+	for _, r := range s {
+		b = append(b, byte(r))
+	}
+	return string(b)
 }
 
 func findMatchingBracket(s string) int {
