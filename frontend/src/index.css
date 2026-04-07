@@ -385,12 +385,19 @@
     height: 100vh;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    -webkit-user-select: none;
+    user-select: none;
   }
   html {
     @apply font-sans;
   }
   #root {
     height: 100vh;
+  }
+  /* Allow selection in input elements */
+  input, textarea, [contenteditable="true"] {
+    -webkit-user-select: text;
+    user-select: text;
   }
 }
 
