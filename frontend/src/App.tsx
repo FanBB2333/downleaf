@@ -40,8 +40,8 @@ export default function App() {
       setFontSize={store.setFontSize}
       setBackend={store.setBackend}
       refreshProjects={store.refreshProjects}
-      mount={(projects, mp, zenMode, ignoreMacOS) =>
-        store.mount(projects, mp, zenMode, ignoreMacOS)
+      mount={(projects, mp, zenMode, syncHiddenFiles) =>
+        store.mount(projects, mp, zenMode, syncHiddenFiles)
       }
       unmount={store.unmount}
       forceUnmount={store.forceUnmount}

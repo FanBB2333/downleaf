@@ -115,7 +115,7 @@ func TestPathWithSlash(t *testing.T) {
 }
 
 func TestParseFileMissing(t *testing.T) {
-	m, err := ParseFile("/nonexistent/.dlignore", true)
+	m, err := ParseFile("/nonexistent/.dlignore", Options{IgnoreMacOS: true})
 	if err != nil {
 		t.Fatalf("ParseFile should not error on missing file: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestParseFileMissing(t *testing.T) {
 }
 
 func TestParseFileMissingWithoutMacOS(t *testing.T) {
-	m, err := ParseFile("/nonexistent/.dlignore", false)
+	m, err := ParseFile("/nonexistent/.dlignore", Options{})
 	if err != nil {
 		t.Fatalf("ParseFile should not error on missing file: %v", err)
 	}
@@ -135,5 +135,46 @@ func TestParseFileMissingWithoutMacOS(t *testing.T) {
 	}
 	if !m.Match("Thumbs.db", false) {
 		t.Error("Thumbs.db should still be ignored by defaults")
+	}
+}
+
+func TestHiddenPatternsEnabled(t *testing.T) {
+	m := NewWithOptions(Options{IgnoreHidden: true})
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{".dlignore", false},
+		{".gitignore", true},
+		{"subdir/.env", true},
+		{".vscode/settings.json", true},
+		{".DS_Store", true},
+		{"notes.tex", false},
+	}
+	for _, tc := range cases {
+		got := m.Match(tc.path, false)
+		if got != tc.want {
+			t.Errorf("Match(%q) = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+}
+
+func TestHiddenPatternsDisabled(t *testing.T) {
+	m := NewWithOptions(Options{})
+	if m.Match(".gitignore", false) {
+		t.Error(".gitignore should not be ignored when hidden-file ignores are disabled")
+	}
+}
+
+func TestHiddenPatternNegationFromUserRules(t *testing.T) {
+	m := ParseReaderWithOptions(strings.NewReader("!.vscode/\n!.vscode/settings.json\n"), Options{IgnoreHidden: true})
+	if m.Match(".vscode", true) {
+		t.Error(".vscode directory should be re-included by user rule")
+	}
+	if m.Match(".vscode/settings.json", false) {
+		t.Error(".vscode/settings.json should be re-included by user rule")
+	}
+	if !m.Match(".vscode/extensions.json", false) {
+		t.Error(".vscode/extensions.json should remain ignored without an explicit negation")
 	}
 }

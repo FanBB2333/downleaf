@@ -189,7 +189,7 @@ interface MainPageProps {
   setFontSize: (s: number) => void
   setBackend: (name: string) => Promise<void>
   refreshProjects: () => Promise<void>
-  mount: (projects: string[], mountpoint: string, zenMode: boolean, ignoreMacOS: boolean) => Promise<void>
+  mount: (projects: string[], mountpoint: string, zenMode: boolean, syncHiddenFiles: boolean) => Promise<void>
   unmount: () => Promise<void>
   forceUnmount: () => Promise<void>
   sync: () => Promise<void>
@@ -235,8 +235,18 @@ export function MainPage({
   const [searchQuery, setSearchQuery] = useState('')
   const [mountpoint, setMountpoint] = useState('~/downleaf')
   const [zenMode, setZenMode] = useState(true)
-  const [ignoreMacOS, setIgnoreMacOS] = useState(() => {
-    return localStorage.getItem('downleaf-ignore-macos') !== 'false'
+  const [syncHiddenFiles, setSyncHiddenFiles] = useState(() => {
+    const saved = localStorage.getItem('downleaf-sync-hidden-files')
+    if (saved !== null) {
+      return saved === 'true'
+    }
+
+    const legacy = localStorage.getItem('downleaf-ignore-macos')
+    if (legacy !== null) {
+      return legacy === 'false'
+    }
+
+    return false
   })
   const [logPanelHeight, setLogPanelHeight] = useState(200)
   const [showForceUnmountDialog, setShowForceUnmountDialog] = useState(false)
@@ -297,7 +307,7 @@ export function MainPage({
 
   const handleMount = async () => {
     clearError()
-    await mount(selectedProjects, mountpoint, zenMode, ignoreMacOS)
+    await mount(selectedProjects, mountpoint, zenMode, syncHiddenFiles)
   }
 
   const handleUnmount = async () => {
@@ -527,12 +537,12 @@ export function MainPage({
                backend={backend}
                backends={backends}
                isMounted={isMounted}
-               ignoreMacOS={ignoreMacOS}
+               syncHiddenFiles={syncHiddenFiles}
                setTheme={setTheme}
                setColorScheme={setColorScheme}
                setFontSize={setFontSize}
                setBackend={setBackend}
-               setIgnoreMacOS={setIgnoreMacOS}
+               setSyncHiddenFiles={setSyncHiddenFiles}
              />
 
              <DropdownMenu>
@@ -795,12 +805,12 @@ function SettingsDialog({
   backend,
   backends,
   isMounted,
-  ignoreMacOS,
+  syncHiddenFiles,
   setTheme,
   setColorScheme,
   setFontSize,
   setBackend,
-  setIgnoreMacOS,
+  setSyncHiddenFiles,
 }: {
   theme: Theme
   colorScheme: ColorScheme
@@ -808,12 +818,12 @@ function SettingsDialog({
   backend: string
   backends: gui.BackendInfo[]
   isMounted: boolean
-  ignoreMacOS: boolean
+  syncHiddenFiles: boolean
   setTheme: (t: Theme) => void
   setColorScheme: (s: ColorScheme) => void
   setFontSize: (s: number) => void
   setBackend: (name: string) => Promise<void>
-  setIgnoreMacOS: (v: boolean) => void
+  setSyncHiddenFiles: (v: boolean) => void
 }) {
   return (
     <Dialog>
@@ -925,18 +935,19 @@ function SettingsDialog({
           <div className="space-y-2">
             <div className="flex items-center space-x-3 rounded-lg border border-border/50 bg-muted/40 px-3 py-2.5 transition-colors hover:bg-muted/60">
               <Switch
-                id="settings-ignore-macos"
-                checked={ignoreMacOS}
+                id="settings-sync-hidden-files"
+                checked={syncHiddenFiles}
                 onCheckedChange={(v) => {
-                  setIgnoreMacOS(v)
-                  localStorage.setItem('downleaf-ignore-macos', String(v))
+                  setSyncHiddenFiles(v)
+                  localStorage.setItem('downleaf-sync-hidden-files', String(v))
+                  localStorage.removeItem('downleaf-ignore-macos')
                 }}
                 disabled={isMounted}
               />
-              <Label htmlFor="settings-ignore-macos" className="cursor-pointer flex-1 text-sm font-medium">
-                Ignore macOS Dotfiles
+              <Label htmlFor="settings-sync-hidden-files" className="cursor-pointer flex-1 text-sm font-medium">
+                Sync Hidden Files
                 <p className="mt-0.5 text-xs font-normal leading-snug text-muted-foreground">
-                  Skip ._*, .DS_Store and other macOS files during sync.
+                  Upload dotfiles and hidden directories during sync. `.dlignore` is always allowed. Off by default.
                 </p>
               </Label>
             </div>

@@ -664,7 +664,7 @@ func cmdMount(client *api.Client, addr, mountpoint string, projectFilters []stri
 	}
 
 	// Load .dlignore from mountpoint directory
-	igMatcher, err := ignore.ParseFile(filepath.Join(mountpoint, ".dlignore"), true)
+	igMatcher, err := ignore.ParseFile(filepath.Join(mountpoint, ".dlignore"), ignore.Options{IgnoreMacOS: true})
 	if err != nil {
 		log.Printf("warning: failed to parse .dlignore: %v", err)
 		igMatcher = ignore.New()

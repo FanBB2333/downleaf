@@ -14,6 +14,15 @@ var defaultPatterns = []string{
 	"desktop.ini",
 }
 
+// hiddenPatterns default to ignoring hidden files and hidden directories, while
+// still allowing .dlignore itself to sync so users can opt specific paths back
+// in with gitignore-style negation rules.
+var hiddenPatterns = []string{
+	".*",
+	".*/**",
+	"!.dlignore",
+}
+
 // macOSPatterns are macOS-specific dotfiles that pollute Overleaf projects.
 var macOSPatterns = []string{
 	".DS_Store",
@@ -37,19 +46,29 @@ type Matcher struct {
 	patterns []pattern
 }
 
-// New creates a Matcher with default patterns and macOS patterns enabled.
-func New() *Matcher {
-	return NewWithOptions(true)
+// Options configures which built-in ignore rule groups are enabled.
+type Options struct {
+	IgnoreMacOS  bool
+	IgnoreHidden bool
 }
 
-// NewWithOptions creates a Matcher. If ignoreMacOS is true, macOS-specific
-// dotfile patterns (._*, .DS_Store, etc.) are included.
-func NewWithOptions(ignoreMacOS bool) *Matcher {
+// New creates a Matcher with default patterns and macOS patterns enabled.
+func New() *Matcher {
+	return NewWithOptions(Options{IgnoreMacOS: true})
+}
+
+// NewWithOptions creates a Matcher using the provided built-in rule groups.
+func NewWithOptions(opts Options) *Matcher {
 	m := &Matcher{}
 	for _, p := range defaultPatterns {
 		m.addLine(p)
 	}
-	if ignoreMacOS {
+	if opts.IgnoreHidden {
+		for _, p := range hiddenPatterns {
+			m.addLine(p)
+		}
+	}
+	if opts.IgnoreMacOS {
 		for _, p := range macOSPatterns {
 			m.addLine(p)
 		}
@@ -60,29 +79,28 @@ func NewWithOptions(ignoreMacOS bool) *Matcher {
 // ParseFile reads a .dlignore file and returns a Matcher.
 // Built-in defaults are prepended; user rules from the file are appended.
 // If the file does not exist, only defaults are returned (no error).
-// ignoreMacOS controls whether macOS dotfile patterns are included.
-func ParseFile(path string, ignoreMacOS bool) (*Matcher, error) {
+func ParseFile(path string, opts Options) (*Matcher, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return NewWithOptions(ignoreMacOS), nil
+			return NewWithOptions(opts), nil
 		}
 		return nil, err
 	}
 	defer f.Close()
-	return ParseReaderWithOptions(f, ignoreMacOS), nil
+	return ParseReaderWithOptions(f, opts), nil
 }
 
 // ParseReader reads ignore rules from a reader.
 // Built-in defaults and macOS patterns are prepended.
 func ParseReader(r io.Reader) *Matcher {
-	return ParseReaderWithOptions(r, true)
+	return ParseReaderWithOptions(r, Options{IgnoreMacOS: true})
 }
 
 // ParseReaderWithOptions reads ignore rules from a reader.
-// Built-in defaults are prepended; ignoreMacOS controls macOS patterns.
-func ParseReaderWithOptions(r io.Reader, ignoreMacOS bool) *Matcher {
-	m := NewWithOptions(ignoreMacOS)
+// Built-in defaults are prepended; opts controls additional built-in patterns.
+func ParseReaderWithOptions(r io.Reader, opts Options) *Matcher {
+	m := NewWithOptions(opts)
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		m.addLine(scanner.Text())

@@ -1,8 +1,10 @@
 package webdav
 
 import (
+	"context"
 	"encoding/json"
 	"html"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -121,4 +123,37 @@ func TestBuildProjectTreeStateIndexesNestedEntries(t *testing.T) {
 	if entry.parentFolder == nil || entry.parentFolder.ID != "folder-1" {
 		t.Fatalf("expected parent folder folder-1, got %#v", entry.parentFolder)
 	}
+}
+
+func TestServerShutdownReleasesPort(t *testing.T) {
+	seed, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve test port: %v", err)
+	}
+	addr := seed.Addr().String()
+	if err := seed.Close(); err != nil {
+		t.Fatalf("release reserved port: %v", err)
+	}
+
+	server := NewServer(addr, NewOverleafFS(nil))
+	errCh, err := server.Start()
+	if err != nil {
+		t.Fatalf("start server: %v", err)
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("shutdown server: %v", err)
+	}
+
+	if err := <-errCh; err != nil {
+		t.Fatalf("serve loop returned error: %v", err)
+	}
+
+	reuse, err := net.Listen("tcp", addr)
+	if err != nil {
+		t.Fatalf("port should be reusable after shutdown: %v", err)
+	}
+	_ = reuse.Close()
 }

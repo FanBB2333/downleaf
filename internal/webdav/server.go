@@ -2,10 +2,12 @@ package webdav
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -30,6 +32,7 @@ type fileMeta struct {
 	projectID string
 	folderID  string
 	name      string
+	relPath   string
 }
 
 // resolveEntry caches the result of a path resolution (including negative results).
@@ -50,6 +53,13 @@ type projectTreeState struct {
 	meta    *model.ProjectMeta
 	root    *model.Folder
 	entries map[string]treeEntry
+}
+
+type localEntry struct {
+	projectID string
+	relPath   string
+	dir       bool
+	modTime   time.Time
 }
 
 // OverleafFS implements gowebdav.FileSystem backed by Overleaf.
@@ -74,6 +84,9 @@ type OverleafFS struct {
 	resolveMu    sync.RWMutex
 	resolveCache map[string]*resolveEntry
 
+	localMu      sync.RWMutex
+	localEntries map[string]*localEntry
+
 	treeFlight    singleflight.Group
 	projectFlight singleflight.Group
 }
@@ -92,6 +105,7 @@ func NewOverleafFS(client *api.Client) *OverleafFS {
 		trees:        make(map[string]*projectTreeState),
 		metaMap:      make(map[string]fileMeta),
 		resolveCache: make(map[string]*resolveEntry),
+		localEntries: make(map[string]*localEntry),
 	}
 }
 
@@ -392,9 +406,9 @@ func (o *OverleafFS) getDocContent(projectID, docID string) ([]byte, error) {
 	return []byte(content), nil
 }
 
-func (o *OverleafFS) registerMeta(cacheKey, projectID, folderID, name string) {
+func (o *OverleafFS) registerMeta(cacheKey, projectID, folderID, name, relPath string) {
 	o.metaMu.Lock()
-	o.metaMap[cacheKey] = fileMeta{projectID: projectID, folderID: folderID, name: name}
+	o.metaMap[cacheKey] = fileMeta{projectID: projectID, folderID: folderID, name: name, relPath: relPath}
 	o.metaMu.Unlock()
 }
 
@@ -455,7 +469,7 @@ func (o *OverleafFS) FlushAll() (flushed, errors int) {
 			errors++
 			continue
 		}
-		if o.isIgnored(meta.name, false) {
+		if o.isIgnored(meta.relPath, false) {
 			log.Printf("flush-all: %s ignored by .dlignore, skipping", meta.name)
 			o.Cache.ClearDirty(key)
 			continue
@@ -493,6 +507,7 @@ type pathInfo struct {
 	doc          *model.Doc
 	fileRef      *model.FileRef
 	parentFolder *model.Folder
+	relPath      string
 }
 
 func (pi *pathInfo) isDir() bool {
@@ -573,10 +588,11 @@ func (o *OverleafFS) resolve(name string) (*pathInfo, error) {
 
 	// Just the project root
 	if len(parts) == 1 {
-		return &pathInfo{project: project, folder: tree.root}, nil
+		return &pathInfo{project: project, folder: tree.root, relPath: ""}, nil
 	}
 
-	entry, ok := tree.entries[strings.Join(parts[1:], "/")]
+	relPath := strings.Join(parts[1:], "/")
+	entry, ok := tree.entries[relPath]
 	if !ok {
 		return nil, os.ErrNotExist
 	}
@@ -587,7 +603,242 @@ func (o *OverleafFS) resolve(name string) (*pathInfo, error) {
 		doc:          entry.doc,
 		fileRef:      entry.fileRef,
 		parentFolder: entry.parentFolder,
+		relPath:      relPath,
 	}, nil
+}
+
+func (o *OverleafFS) ensureProjectsLoaded() error {
+	o.projectsMu.RLock()
+	loaded := len(o.projects) > 0
+	o.projectsMu.RUnlock()
+	if loaded {
+		return nil
+	}
+	return o.refreshProjects()
+}
+
+func (o *OverleafFS) splitProjectPath(name string) (model.Project, string, bool) {
+	name = path.Clean(name)
+	name = strings.TrimPrefix(name, "/")
+	if name == "" || name == "." {
+		return model.Project{}, "", false
+	}
+
+	if err := o.ensureProjectsLoaded(); err != nil {
+		return model.Project{}, "", false
+	}
+
+	parts := strings.Split(name, "/")
+	project, ok := o.findProjectByName(parts[0])
+	if !ok {
+		return model.Project{}, "", false
+	}
+
+	relPath := ""
+	if len(parts) > 1 {
+		relPath = strings.Join(parts[1:], "/")
+	}
+	return project, relPath, true
+}
+
+func localEntryMapKey(projectID, relPath string) string {
+	return projectID + "\x00" + relPath
+}
+
+func localEntityID(relPath string) string {
+	return "local:" + relPath
+}
+
+func localCacheKey(projectID, relPath string) string {
+	return projectID + "/" + localEntityID(relPath)
+}
+
+func sameOrChildPath(pathValue, prefix string) bool {
+	return pathValue == prefix || strings.HasPrefix(pathValue, prefix+"/")
+}
+
+func splitRelPath(relPath string) (parent, base string) {
+	relPath = path.Clean(strings.TrimPrefix(relPath, "/"))
+	if relPath == "" || relPath == "." {
+		return "", ""
+	}
+	base = path.Base(relPath)
+	parent = path.Dir(relPath)
+	if parent == "." {
+		parent = ""
+	}
+	return parent, base
+}
+
+func (o *OverleafFS) getLocalEntry(projectID, relPath string) (*localEntry, bool) {
+	o.localMu.RLock()
+	entry, ok := o.localEntries[localEntryMapKey(projectID, relPath)]
+	o.localMu.RUnlock()
+	return entry, ok
+}
+
+func (o *OverleafFS) getLocalEntryByName(name string) (model.Project, *localEntry, bool) {
+	project, relPath, ok := o.splitProjectPath(name)
+	if !ok || relPath == "" {
+		return model.Project{}, nil, false
+	}
+	entry, ok := o.getLocalEntry(project.ID, relPath)
+	if !ok {
+		return model.Project{}, nil, false
+	}
+	return project, entry, true
+}
+
+func (o *OverleafFS) putLocalEntry(projectID, relPath string, dir bool) *localEntry {
+	entry := &localEntry{
+		projectID: projectID,
+		relPath:   relPath,
+		dir:       dir,
+		modTime:   time.Now(),
+	}
+	o.localMu.Lock()
+	o.localEntries[localEntryMapKey(projectID, relPath)] = entry
+	o.localMu.Unlock()
+	return entry
+}
+
+func (o *OverleafFS) touchLocalEntry(projectID, relPath string) {
+	o.localMu.Lock()
+	if entry, ok := o.localEntries[localEntryMapKey(projectID, relPath)]; ok {
+		entry.modTime = time.Now()
+	}
+	o.localMu.Unlock()
+}
+
+func (o *OverleafFS) deleteLocalSubtree(projectID, relPath string) {
+	var entries []*localEntry
+
+	o.localMu.Lock()
+	for key, entry := range o.localEntries {
+		if entry.projectID != projectID {
+			continue
+		}
+		if !sameOrChildPath(entry.relPath, relPath) {
+			continue
+		}
+		entries = append(entries, entry)
+		delete(o.localEntries, key)
+	}
+	o.localMu.Unlock()
+
+	for _, entry := range entries {
+		if entry.dir {
+			continue
+		}
+		o.Cache.Delete(localCacheKey(projectID, entry.relPath))
+	}
+}
+
+func (o *OverleafFS) moveLocalSubtree(projectID, oldRelPath, newRelPath string) {
+	type move struct {
+		old *localEntry
+		new *localEntry
+	}
+
+	var moves []move
+
+	o.localMu.Lock()
+	for key, entry := range o.localEntries {
+		if entry.projectID != projectID {
+			continue
+		}
+		if !sameOrChildPath(entry.relPath, oldRelPath) {
+			continue
+		}
+
+		suffix := strings.TrimPrefix(strings.TrimPrefix(entry.relPath, oldRelPath), "/")
+		targetRelPath := newRelPath
+		if suffix != "" {
+			targetRelPath = newRelPath + "/" + suffix
+		}
+
+		updated := &localEntry{
+			projectID: entry.projectID,
+			relPath:   targetRelPath,
+			dir:       entry.dir,
+			modTime:   time.Now(),
+		}
+		moves = append(moves, move{old: entry, new: updated})
+		delete(o.localEntries, key)
+		o.localEntries[localEntryMapKey(projectID, targetRelPath)] = updated
+	}
+	o.localMu.Unlock()
+
+	for _, mv := range moves {
+		if mv.old.dir {
+			continue
+		}
+		oldCacheKey := localCacheKey(projectID, mv.old.relPath)
+		newCacheKey := localCacheKey(projectID, mv.new.relPath)
+		if data, ok := o.Cache.Get(oldCacheKey); ok {
+			o.Cache.Set(newCacheKey, data)
+		}
+		o.Cache.Delete(oldCacheKey)
+	}
+}
+
+func (o *OverleafFS) listLocalChildren(projectID, dirRelPath string) []fs.FileInfo {
+	o.localMu.RLock()
+	defer o.localMu.RUnlock()
+
+	entries := make(map[string]fs.FileInfo)
+	for _, entry := range o.localEntries {
+		if entry.projectID != projectID {
+			continue
+		}
+		parent, base := splitRelPath(entry.relPath)
+		if parent != dirRelPath || base == "" {
+			continue
+		}
+
+		info := &fileInfo{name: base, dir: entry.dir, modTime: entry.modTime}
+		if !entry.dir {
+			if data, ok := o.Cache.Get(localCacheKey(projectID, entry.relPath)); ok {
+				info.size = int64(len(data))
+			}
+		}
+		entries[base] = info
+	}
+
+	var result []fs.FileInfo
+	for _, entry := range entries {
+		result = append(result, entry)
+	}
+	return result
+}
+
+func (o *OverleafFS) ensureLocalParentDir(name string) (model.Project, string, error) {
+	project, relPath, ok := o.splitProjectPath(name)
+	if !ok || relPath == "" {
+		return model.Project{}, "", os.ErrPermission
+	}
+
+	dir := path.Dir(path.Clean(name))
+	parentRelPath, _ := splitRelPath(relPath)
+	if parentRelPath == "" {
+		return project, relPath, nil
+	}
+
+	if entry, ok := o.getLocalEntry(project.ID, parentRelPath); ok {
+		if !entry.dir {
+			return model.Project{}, "", os.ErrInvalid
+		}
+		return project, relPath, nil
+	}
+
+	info, err := o.resolve(dir)
+	if err != nil {
+		return model.Project{}, "", err
+	}
+	if !info.isDir() {
+		return model.Project{}, "", os.ErrInvalid
+	}
+	return project, relPath, nil
 }
 
 // ==========================================================================
@@ -598,6 +849,26 @@ var _ gowebdav.FileSystem = (*OverleafFS)(nil)
 
 func (o *OverleafFS) Mkdir(ctx context.Context, name string, perm os.FileMode) error {
 	name = path.Clean(name)
+
+	if project, relPath, ok := o.splitProjectPath(name); ok && relPath != "" && o.isIgnored(relPath, true) {
+		if _, err := o.resolve(name); err == nil {
+			return fs.ErrExist
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		if _, _, err := o.ensureLocalParentDir(name); err != nil {
+			return err
+		}
+		if entry, ok := o.getLocalEntry(project.ID, relPath); ok {
+			if entry.dir {
+				return nil
+			}
+			return fs.ErrExist
+		}
+		o.putLocalEntry(project.ID, relPath, true)
+		return nil
+	}
+
 	dir := path.Dir(name)
 	base := path.Base(name)
 
@@ -620,9 +891,20 @@ func (o *OverleafFS) Mkdir(ctx context.Context, name string, perm os.FileMode) e
 func (o *OverleafFS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMode) (gowebdav.File, error) {
 	name = path.Clean(name)
 
+	if project, entry, ok := o.getLocalEntryByName(name); ok {
+		return o.openLocalEntry(project, entry, flag)
+	}
+
 	if flag&os.O_CREATE != 0 {
 		info, err := o.resolveWithCache(name)
 		if err == os.ErrNotExist {
+			if project, relPath, ok := o.splitProjectPath(name); ok && relPath != "" && o.isIgnored(relPath, false) {
+				if _, _, err := o.ensureLocalParentDir(name); err != nil {
+					return nil, err
+				}
+				o.putLocalEntry(project.ID, relPath, false)
+				return o.openLocalFile(project.ID, relPath, true, flag&os.O_TRUNC != 0)
+			}
 			return o.createFile(name)
 		}
 		if err != nil {
@@ -651,6 +933,43 @@ func (o *OverleafFS) openExisting(info *pathInfo, flag int) (gowebdav.File, erro
 	return o.openFileForRead(info)
 }
 
+func (o *OverleafFS) openLocalEntry(project model.Project, entry *localEntry, flag int) (gowebdav.File, error) {
+	if entry.dir {
+		return o.openLocalDir(project.ID, entry)
+	}
+	return o.openLocalFile(project.ID, entry.relPath, flag&(os.O_WRONLY|os.O_RDWR) != 0, flag&os.O_TRUNC != 0)
+}
+
+func (o *OverleafFS) openLocalDir(projectID string, entry *localEntry) (gowebdav.File, error) {
+	return &dirFile{
+		info:    &fileInfo{name: path.Base(entry.relPath), dir: true, modTime: entry.modTime},
+		entries: o.listLocalChildren(projectID, entry.relPath),
+	}, nil
+}
+
+func (o *OverleafFS) openLocalFile(projectID, relPath string, writable, truncate bool) (gowebdav.File, error) {
+	cacheKey := localCacheKey(projectID, relPath)
+	var content []byte
+	if !truncate {
+		if cached, ok := o.Cache.Get(cacheKey); ok {
+			content = make([]byte, len(cached))
+			copy(content, cached)
+		}
+	}
+
+	return &regularFile{
+		ofs:       o,
+		info:      &fileInfo{name: path.Base(relPath), size: int64(len(content)), modTime: time.Now()},
+		projectID: projectID,
+		entityID:  localEntityID(relPath),
+		name:      path.Base(relPath),
+		relPath:   relPath,
+		content:   content,
+		writable:  writable,
+		localOnly: true,
+	}, nil
+}
+
 func (o *OverleafFS) openDir(info *pathInfo) (gowebdav.File, error) {
 	if info.isRoot {
 		if err := o.refreshProjectsIfStale(); err != nil {
@@ -670,10 +989,12 @@ func (o *OverleafFS) openDir(info *pathInfo) (gowebdav.File, error) {
 
 	folder := info.folder
 	var entries []fs.FileInfo
+	seen := make(map[string]struct{})
 	for _, sub := range folder.Folders {
 		entries = append(entries, &fileInfo{
 			name: sanitizeName(sub.Name), dir: true, modTime: time.Now(),
 		})
+		seen[sanitizeName(sub.Name)] = struct{}{}
 	}
 	for _, doc := range folder.Docs {
 		var size int64
@@ -683,6 +1004,7 @@ func (o *OverleafFS) openDir(info *pathInfo) (gowebdav.File, error) {
 		entries = append(entries, &fileInfo{
 			name: sanitizeName(doc.Name), size: size, modTime: time.Now(),
 		})
+		seen[sanitizeName(doc.Name)] = struct{}{}
 	}
 	for _, ref := range folder.FileRefs {
 		var size int64
@@ -692,6 +1014,14 @@ func (o *OverleafFS) openDir(info *pathInfo) (gowebdav.File, error) {
 		entries = append(entries, &fileInfo{
 			name: sanitizeName(ref.Name), size: size, modTime: ref.Created,
 		})
+		seen[sanitizeName(ref.Name)] = struct{}{}
+	}
+
+	for _, localInfo := range o.listLocalChildren(info.project.ID, info.relPath) {
+		if _, ok := seen[localInfo.Name()]; ok {
+			continue
+		}
+		entries = append(entries, localInfo)
 	}
 
 	return &dirFile{
@@ -736,6 +1066,7 @@ func (o *OverleafFS) openFileForRead(info *pathInfo) (gowebdav.File, error) {
 		folderID:  folderID,
 		entityID:  info.entityID(),
 		name:      info.entityName(),
+		relPath:   info.relPath,
 		isDoc:     info.doc != nil,
 		content:   data,
 	}, nil
@@ -764,9 +1095,11 @@ func (o *OverleafFS) openFileForWrite(info *pathInfo, truncate bool) (gowebdav.F
 		folderID:  folderID,
 		entityID:  info.entityID(),
 		name:      info.entityName(),
+		relPath:   info.relPath,
 		isDoc:     info.doc != nil,
 		content:   content,
 		writable:  true,
+		localOnly: o.isIgnored(info.relPath, false),
 	}, nil
 }
 
@@ -823,6 +1156,15 @@ func isTempFile(name string) bool {
 }
 
 func (o *OverleafFS) createFile(name string) (gowebdav.File, error) {
+	project, relPath, ok := o.splitProjectPath(name)
+	if ok && relPath != "" && o.isIgnored(relPath, false) {
+		if _, _, err := o.ensureLocalParentDir(name); err != nil {
+			return nil, err
+		}
+		o.putLocalEntry(project.ID, relPath, false)
+		return o.openLocalFile(project.ID, relPath, true, true)
+	}
+
 	dir := path.Dir(name)
 	base := path.Base(name)
 
@@ -832,25 +1174,6 @@ func (o *OverleafFS) createFile(name string) (gowebdav.File, error) {
 	}
 	if !parent.isDir() || parent.isRoot {
 		return nil, os.ErrPermission
-	}
-
-	// Ignored files (macOS ._*, .DS_Store, etc.): keep in memory only
-	if o.isIgnored(base, false) {
-		tmpID := "ign-" + base
-		cacheKey := parent.project.ID + "/" + tmpID
-		o.Cache.Set(cacheKey, []byte{})
-		return &regularFile{
-			ofs:       o,
-			info:      &fileInfo{name: base, modTime: time.Now()},
-			projectID: parent.project.ID,
-			folderID:  parent.folder.ID,
-			entityID:  tmpID,
-			name:      base,
-			isDoc:     false,
-			content:   []byte{},
-			writable:  true,
-			tempFile:  true,
-		}, nil
 	}
 
 	// Temp files from editors: keep in memory only, never upload to Overleaf
@@ -910,6 +1233,7 @@ func (o *OverleafFS) createFile(name string) (gowebdav.File, error) {
 		folderID:  parent.folder.ID,
 		entityID:  entityID,
 		name:      base,
+		relPath:   relPath,
 		isDoc:     isDoc,
 		content:   []byte{},
 		writable:  true,
@@ -917,6 +1241,11 @@ func (o *OverleafFS) createFile(name string) (gowebdav.File, error) {
 }
 
 func (o *OverleafFS) RemoveAll(ctx context.Context, name string) error {
+	if project, entry, ok := o.getLocalEntryByName(name); ok {
+		o.deleteLocalSubtree(project.ID, entry.relPath)
+		return nil
+	}
+
 	info, err := o.resolve(name)
 	if err != nil {
 		return err
@@ -947,6 +1276,18 @@ func (o *OverleafFS) Rename(ctx context.Context, oldName, newName string) error 
 	// Copy temp file content to the real file's cache entry as dirty.
 	if isTempFile(oldName) && !isTempFile(newName) {
 		return o.renameTempToReal(oldName, newName)
+	}
+
+	if project, entry, ok := o.getLocalEntryByName(oldName); ok {
+		if _, _, err := o.ensureLocalParentDir(newName); err != nil {
+			return err
+		}
+		newProject, newRelPath, ok := o.splitProjectPath(newName)
+		if !ok || newProject.ID != project.ID {
+			return os.ErrInvalid
+		}
+		o.moveLocalSubtree(project.ID, entry.relPath, newRelPath)
+		return nil
 	}
 
 	info, err := o.resolve(oldName)
@@ -992,6 +1333,32 @@ func (o *OverleafFS) Rename(ctx context.Context, oldName, newName string) error 
 func (o *OverleafFS) renameTempToReal(oldName, newName string) error {
 	newName = path.Clean(newName)
 
+	if project, relPath, ok := o.splitProjectPath(newName); ok && relPath != "" && o.isIgnored(relPath, false) {
+		if _, _, err := o.ensureLocalParentDir(newName); err != nil {
+			return err
+		}
+
+		parts := strings.Split(strings.TrimPrefix(path.Clean(oldName), "/"), "/")
+		if len(parts) < 2 {
+			return os.ErrInvalid
+		}
+		oldProject, ok := o.findProjectByName(parts[0])
+		if !ok {
+			return os.ErrNotExist
+		}
+		tmpBase := path.Base(oldName)
+		tmpCacheKey := oldProject.ID + "/tmp-" + tmpBase
+		data, ok := o.Cache.Get(tmpCacheKey)
+		if !ok {
+			return os.ErrNotExist
+		}
+
+		o.putLocalEntry(project.ID, relPath, false)
+		o.Cache.Set(localCacheKey(project.ID, relPath), data)
+		o.Cache.Delete(tmpCacheKey)
+		return nil
+	}
+
 	// Resolve the target to get project/entity info
 	target, err := o.resolve(newName)
 	if err != nil {
@@ -1022,16 +1389,16 @@ func (o *OverleafFS) renameTempToReal(oldName, newName string) error {
 	if target.parentFolder != nil {
 		folderID = target.parentFolder.ID
 	}
-	o.registerMeta(realCacheKey, target.project.ID, folderID, target.entityName())
+	o.registerMeta(realCacheKey, target.project.ID, folderID, target.entityName(), target.relPath)
 
 	// Clean up temp cache entry
 	o.Cache.Delete(tmpCacheKey)
 
 	// In non-zen mode, upload immediately
 	if !o.ZenMode {
-		if o.isIgnored(target.entityName(), false) {
+		if o.isIgnored(target.relPath, false) {
 			log.Printf("skipping upload of %s (ignored by .dlignore)", target.entityName())
-			o.Cache.ClearDirty(realCacheKey)
+			o.Cache.Set(realCacheKey, data)
 			return nil
 		}
 		log.Printf("uploading %s to Overleaf", target.entityName())
@@ -1046,13 +1413,19 @@ func (o *OverleafFS) renameTempToReal(oldName, newName string) error {
 }
 
 func (o *OverleafFS) Stat(ctx context.Context, name string) (os.FileInfo, error) {
+	if _, entry, ok := o.getLocalEntryByName(name); ok {
+		info := &fileInfo{name: path.Base(entry.relPath), dir: entry.dir, modTime: entry.modTime}
+		if !entry.dir {
+			if data, ok := o.Cache.Get(localCacheKey(entry.projectID, entry.relPath)); ok {
+				info.size = int64(len(data))
+			}
+		}
+		return info, nil
+	}
+
 	// Temp files: check cache directly
 	if isTempFile(name) {
 		return o.statTempFile(name)
-	}
-	// Ignored files: check cache directly
-	if o.isIgnored(path.Base(name), false) {
-		return o.statIgnoredFile(name)
 	}
 
 	info, err := o.resolveWithCache(name)
@@ -1157,12 +1530,14 @@ type regularFile struct {
 	folderID  string
 	entityID  string
 	name      string
+	relPath   string
 	isDoc     bool
 	content   []byte
 	readPos   int64
 	writable  bool
 	dirty     bool
 	tempFile  bool
+	localOnly bool
 }
 
 func (f *regularFile) Stat() (fs.FileInfo, error)         { return f.info, nil }
@@ -1219,16 +1594,24 @@ func (f *regularFile) Close() error {
 		return nil
 	}
 
+	if f.localOnly {
+		f.ofs.Cache.Set(cacheKey, f.content)
+		if f.relPath != "" {
+			f.ofs.touchLocalEntry(f.projectID, f.relPath)
+		}
+		return nil
+	}
+
 	f.ofs.Cache.SetDirty(cacheKey, f.content)
-	f.ofs.registerMeta(cacheKey, f.projectID, f.folderID, f.name)
+	f.ofs.registerMeta(cacheKey, f.projectID, f.folderID, f.name, f.relPath)
 
 	if f.ofs.ZenMode {
 		return nil
 	}
 
-	if f.ofs.isIgnored(f.name, false) {
+	if f.ofs.isIgnored(f.relPath, false) {
 		log.Printf("skipping upload of %s (ignored by .dlignore)", f.name)
-		f.ofs.Cache.ClearDirty(cacheKey)
+		f.ofs.Cache.Set(cacheKey, f.content)
 		return nil
 	}
 
@@ -1245,8 +1628,11 @@ func (f *regularFile) Close() error {
 // Helpers
 // ==========================================================================
 
-// isIgnored checks whether a filename should be skipped during sync.
+// isIgnored checks whether a project-relative path should be skipped during sync.
 func (o *OverleafFS) isIgnored(name string, isDir bool) bool {
+	if name == "" || name == "." {
+		return false
+	}
 	if o.Ignore == nil {
 		return false
 	}
@@ -1336,6 +1722,25 @@ func isNoiseRequest(path string) bool {
 
 // Serve starts the WebDAV server on the given address.
 func Serve(addr string, ofs *OverleafFS) error {
+	server := NewServer(addr, ofs)
+	errCh, err := server.Start()
+	if err != nil {
+		return err
+	}
+	return <-errCh
+}
+
+// Server owns the WebDAV HTTP server lifecycle so callers can shut it down
+// cleanly and release the listening port between mount sessions.
+type Server struct {
+	mu   sync.Mutex
+	addr string
+	srv  *http.Server
+	ln   net.Listener
+}
+
+// NewServer constructs a stoppable WebDAV server.
+func NewServer(addr string, ofs *OverleafFS) *Server {
 	handler := &gowebdav.Handler{
 		FileSystem: ofs,
 		LockSystem: gowebdav.NewMemLS(),
@@ -1353,8 +1758,71 @@ func Serve(addr string, ofs *OverleafFS) error {
 		},
 	}
 
-	log.Printf("WebDAV server listening on %s", addr)
-	return http.ListenAndServe(addr, handler)
+	return &Server{
+		addr: addr,
+		srv: &http.Server{
+			Addr:    addr,
+			Handler: handler,
+		},
+	}
+}
+
+// Start binds the listening socket synchronously, then serves in the background.
+func (s *Server) Start() (<-chan error, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.ln != nil {
+		return nil, fmt.Errorf("webdav server already started on %s", s.ln.Addr().String())
+	}
+
+	ln, err := net.Listen("tcp", s.addr)
+	if err != nil {
+		return nil, err
+	}
+	s.ln = ln
+
+	log.Printf("WebDAV server listening on %s", ln.Addr().String())
+
+	errCh := make(chan error, 1)
+	go func() {
+		err := s.srv.Serve(ln)
+		if errors.Is(err, http.ErrServerClosed) {
+			err = nil
+		}
+
+		s.mu.Lock()
+		s.ln = nil
+		s.mu.Unlock()
+
+		errCh <- err
+	}()
+	return errCh, nil
+}
+
+// Shutdown stops the server and frees the listening socket.
+func (s *Server) Shutdown(ctx context.Context) error {
+	err := s.srv.Shutdown(ctx)
+	if err == nil || errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+
+	closeErr := s.srv.Close()
+	if closeErr == nil || errors.Is(closeErr, http.ErrServerClosed) {
+		return nil
+	}
+
+	return fmt.Errorf("shutdown webdav server: %w (close: %v)", err, closeErr)
+}
+
+// Addr returns the bound listening address, or the configured address before start.
+func (s *Server) Addr() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ln != nil {
+		return s.ln.Addr().String()
+	}
+	return s.addr
 }
 
 // MountNative attempts to mount the WebDAV server using OS-native commands.

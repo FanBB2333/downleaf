@@ -70,6 +70,8 @@ type App struct {
 	logBuf []string
 }
 
+const backendStartupGracePeriod = 200 * time.Millisecond
+
 func NewApp() *App {
 	return &App{
 		addr:        "localhost:9090",
@@ -115,8 +117,7 @@ func (a *App) Shutdown(ctx context.Context) {
 			}
 		}
 		a.backend.Stop()
-		a.mounted = false
-		a.backend = nil
+		a.clearMountStateLocked()
 	}
 }
 
@@ -197,7 +198,10 @@ func (a *App) ListTags() ([]model.Tag, error) {
 }
 
 // Mount starts the mount backend and mounts the filesystem.
-func (a *App) Mount(projectNames []string, mountpoint string, zenMode bool, ignoreMacOS bool) error {
+// syncHiddenFiles controls whether hidden files and hidden directories are
+// uploaded to Overleaf. .dlignore is always allowed so users can add negation
+// rules for specific hidden paths.
+func (a *App) Mount(projectNames []string, mountpoint string, zenMode bool, syncHiddenFiles bool) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -221,11 +225,15 @@ func (a *App) Mount(projectNames []string, mountpoint string, zenMode bool, igno
 		return fmt.Errorf("mount backend %q: %w", a.backendName, err)
 	}
 
-	// Load .dlignore from mountpoint directory
-	igMatcher, igErr := ignore.ParseFile(filepath.Join(mountpoint, ".dlignore"), ignoreMacOS)
+	ignoreOpts := ignore.Options{
+		IgnoreHidden: !syncHiddenFiles,
+	}
+
+	// Load .dlignore from mountpoint directory.
+	igMatcher, igErr := ignore.ParseFile(filepath.Join(mountpoint, ".dlignore"), ignoreOpts)
 	if igErr != nil {
 		log.Printf("warning: failed to parse .dlignore: %v", igErr)
-		igMatcher = ignore.NewWithOptions(ignoreMacOS)
+		igMatcher = ignore.NewWithOptions(ignoreOpts)
 	}
 
 	cfg := mount.Config{
@@ -237,18 +245,26 @@ func (a *App) Mount(projectNames []string, mountpoint string, zenMode bool, igno
 		Ignore:         igMatcher,
 	}
 
-	// Start backend in background (it blocks until Stop)
+	doneCh := make(chan error, 1)
 	go func() {
-		if err := backend.Start(cfg); err != nil {
-			log.Printf("Mount backend error: %v", err)
-		}
+		doneCh <- backend.Start(cfg)
 	}()
+
+	select {
+	case err := <-doneCh:
+		return fmt.Errorf("mount failed: %w", err)
+	case <-time.After(backendStartupGracePeriod):
+	}
 
 	a.backend = backend
 	a.mounted = true
 	a.mountpoint = mountpoint
 	a.zenMode = zenMode
 	a.projects = projectNames
+
+	go func() {
+		a.handleBackendExit(backend, <-doneCh)
+	}()
 
 	wailsRuntime.EventsEmit(a.ctx, "mountStatusChanged")
 	return nil
@@ -272,8 +288,7 @@ func (a *App) Unmount() error {
 	}
 
 	log.Printf("Unmounted %s", a.mountpoint)
-	a.mounted = false
-	a.backend = nil
+	a.clearMountStateLocked()
 
 	wailsRuntime.EventsEmit(a.ctx, "mountStatusChanged")
 	return nil
@@ -296,8 +311,7 @@ func (a *App) ForceUnmount() error {
 	}
 
 	log.Printf("Force unmounted %s", a.mountpoint)
-	a.mounted = false
-	a.backend = nil
+	a.clearMountStateLocked()
 
 	wailsRuntime.EventsEmit(a.ctx, "mountStatusChanged")
 	return nil
@@ -331,6 +345,32 @@ func (a *App) GetMountStatus() *MountStatus {
 		ZenMode:    a.zenMode,
 		WebDAVAddr: a.addr,
 		Backend:    a.backendName,
+	}
+}
+
+func (a *App) clearMountStateLocked() {
+	a.mounted = false
+	a.backend = nil
+	a.mountpoint = ""
+	a.zenMode = false
+	a.projects = nil
+}
+
+func (a *App) handleBackendExit(backend mount.Backend, err error) {
+	if err != nil {
+		log.Printf("Mount backend error: %v", err)
+	}
+
+	a.mu.Lock()
+	if a.backend != backend {
+		a.mu.Unlock()
+		return
+	}
+	a.clearMountStateLocked()
+	a.mu.Unlock()
+
+	if a.ctx != nil {
+		wailsRuntime.EventsEmit(a.ctx, "mountStatusChanged")
 	}
 }
 
