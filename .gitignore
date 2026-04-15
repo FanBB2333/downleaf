@@ -12,5 +12,8 @@ frontend/dist/
 # Claude Code
 .claude/
 
+# Internal design docs
+docs/superpowers/
+
 # Workshop files
 Overleaf-Workshop/
