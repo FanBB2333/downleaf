@@ -20,9 +20,6 @@ jobs:
           - os: macos-14
             platform: macOS
             arch: arm64
-          - os: windows-latest
-            platform: Windows
-            arch: x64
 
     steps:
       - name: Checkout
@@ -41,50 +38,24 @@ jobs:
       - name: Install frontend dependencies
         run: npm -C frontend install
 
-      - name: Install Wails CLI (Unix)
-        if: runner.os != 'Windows'
+      - name: Install Wails CLI
         run: |
           go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
-      - name: Install Wails CLI (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
-          $gopath = go env GOPATH
-          "$gopath\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
-
       - name: Build GUI app
         run: wails build -clean
 
-      - name: Build CLI binary (Unix)
-        if: runner.os != 'Windows'
-        run: CGO_ENABLED=0 go build -ldflags="-s -w" -o build/bin/downleaf ./cmd/downleaf
+      - name: Build CLI binary
+        run: go build -ldflags="-s -w" -o build/bin/downleaf ./cmd/downleaf
 
-      - name: Build CLI binary (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $env:CGO_ENABLED = "0"
-          go build -ldflags="-s -w" -o build/bin/downleaf.exe ./cmd/downleaf
-
-      - name: Remove quarantine attribute (macOS)
-        if: runner.os == 'macOS'
+      - name: Remove quarantine attribute
         run: xattr -cr build/bin/downleaf.app
 
-      - name: Package artifact (macOS)
-        if: runner.os == 'macOS'
+      - name: Package artifact
         run: |
           cd build/bin
           zip -r "../../downleaf-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.ref_name }}.zip" .
-
-      - name: Package artifact (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $zipPath = "downleaf-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.ref_name }}.zip"
-          Compress-Archive -Path "build/bin/*" -DestinationPath $zipPath
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
