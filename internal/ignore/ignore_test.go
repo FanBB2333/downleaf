@@ -38,6 +38,34 @@ func TestDefaultPatterns(t *testing.T) {
 	}
 }
 
+func TestDefaultLatexBuildPatterns(t *testing.T) {
+	m := New()
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{"main.aux", true},
+		{"main.log", true},
+		{"main.synctex.gz", true},
+		{"main.fls", true},
+		{"main.fdb_latexmk", true},
+		{"main.bbl", true},
+		{"chapters/intro.out", true},
+		{"chapters/intro.toc", true},
+		{"chapters/intro.run.xml", true},
+		{"texput.log", true},
+		{"main.tex", false},
+		{"refs.bib", false},
+		{"figures/output.pdf", false},
+	}
+	for _, tc := range cases {
+		got := m.Match(tc.path, false)
+		if got != tc.want {
+			t.Errorf("Match(%q) = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+}
+
 func TestSimpleGlob(t *testing.T) {
 	m := ParseReader(strings.NewReader("*.log\nbuild/\n"))
 	cases := []struct {
@@ -67,6 +95,16 @@ func TestNegation(t *testing.T) {
 	}
 	if m.Match("important.log", false) {
 		t.Error("important.log should NOT be ignored (negated)")
+	}
+}
+
+func TestLatexBuildPatternNegation(t *testing.T) {
+	m := ParseReader(strings.NewReader("!share/main.log\n"))
+	if m.Match("share/main.log", false) {
+		t.Error("share/main.log should NOT be ignored (negated)")
+	}
+	if !m.Match("draft/main.log", false) {
+		t.Error("draft/main.log should still be ignored by defaults")
 	}
 }
 

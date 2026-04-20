@@ -14,6 +14,39 @@ var defaultPatterns = []string{
 	"desktop.ini",
 }
 
+// latexBuildPatterns are always active, covering common local LaTeX build
+// artifacts that should not be pushed back to Overleaf by default. Users can
+// still opt specific files back in via .dlignore negation rules.
+var latexBuildPatterns = []string{
+	"*.aux",
+	"*.log",
+	"*.synctex.gz",
+	"*.bbl",
+	"*.blg",
+	"*.fls",
+	"*.fdb_latexmk",
+	"*.out",
+	"*.toc",
+	"*.lof",
+	"*.lot",
+	"*.nav",
+	"*.snm",
+	"*.vrb",
+	"*.idx",
+	"*.ilg",
+	"*.ind",
+	"*.glo",
+	"*.gls",
+	"*.acn",
+	"*.acr",
+	"*.alg",
+	"*.glg",
+	"*.ist",
+	"*.run.xml",
+	"*.bcf",
+	"texput.*",
+}
+
 // hiddenPatterns default to ignoring hidden files and hidden directories, while
 // still allowing .dlignore itself to sync so users can opt specific paths back
 // in with gitignore-style negation rules.
@@ -61,6 +94,9 @@ func New() *Matcher {
 func NewWithOptions(opts Options) *Matcher {
 	m := &Matcher{}
 	for _, p := range defaultPatterns {
+		m.addLine(p)
+	}
+	for _, p := range latexBuildPatterns {
 		m.addLine(p)
 	}
 	if opts.IgnoreHidden {
