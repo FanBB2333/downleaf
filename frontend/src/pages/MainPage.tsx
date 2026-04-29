@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, type CSSProperties } from 'react'
-import { RotateCw, Terminal, Search, Folder, Library, AlertTriangle } from 'lucide-react'
+import { RotateCw, Terminal, Search, Folder, Library, AlertTriangle, CheckCircle2, ArrowDownToLine, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -25,9 +25,9 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Slider } from '@/components/ui/slider'
 import { useWindowDrag } from '@/hooks/use-window-drag'
-import type { gui } from '../../wailsjs/go/models'
+import type { gui, mount } from '../../wailsjs/go/models'
 import type { model } from '../../wailsjs/go/models'
-import type { Theme, ColorScheme } from '@/hooks/use-store'
+import type { Theme, ColorScheme, StatusMessage } from '@/hooks/use-store'
 
 type RGBColor = { r: number; g: number; b: number }
 
@@ -179,6 +179,7 @@ interface MainPageProps {
   logs: string[]
   loading: string
   error: string
+  status: StatusMessage
   theme: Theme
   colorScheme: ColorScheme
   fontSize: number
@@ -193,9 +194,14 @@ interface MainPageProps {
   unmount: () => Promise<void>
   forceUnmount: () => Promise<void>
   sync: () => Promise<void>
+  pullRemote: () => Promise<mount.IncomingChange[]>
+  applyPull: () => Promise<void>
+  cancelPull: () => Promise<void>
+  discardLocal: () => Promise<void>
   openMountpoint: () => Promise<void>
   clearLogs: () => void
   clearError: () => void
+  clearStatus: () => void
   onLogout: () => void
 }
 
@@ -208,6 +214,7 @@ export function MainPage({
   logs,
   loading,
   error,
+  status,
   theme,
   colorScheme,
   fontSize,
@@ -222,9 +229,14 @@ export function MainPage({
   unmount,
   forceUnmount,
   sync,
+  pullRemote,
+  applyPull,
+  cancelPull,
+  discardLocal,
   openMountpoint,
   clearLogs,
   clearError,
+  clearStatus,
   onLogout,
 }: MainPageProps) {
   const [selectedProjects, setSelectedProjects] = useState<string[]>([])
@@ -250,6 +262,9 @@ export function MainPage({
   })
   const [logPanelHeight, setLogPanelHeight] = useState(200)
   const [showForceUnmountDialog, setShowForceUnmountDialog] = useState(false)
+  const [showDiscardDialog, setShowDiscardDialog] = useState(false)
+  const [pullDialogOpen, setPullDialogOpen] = useState(false)
+  const [pullChanges, setPullChanges] = useState<mount.IncomingChange[] | null>(null)
   const logEndRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const isDraggingRef = useRef(false)
@@ -329,6 +344,34 @@ export function MainPage({
     } catch {
       // Error is already set by the store
     }
+  }
+
+  const handlePullOnly = async () => {
+    clearError()
+    try {
+      const changes = await pullRemote()
+      setPullChanges(changes)
+      setPullDialogOpen(true)
+    } catch {
+      // status is already set by the store
+    }
+  }
+
+  const handleAcceptPull = async () => {
+    setPullDialogOpen(false)
+    setPullChanges(null)
+    await applyPull()
+  }
+
+  const handleCancelPull = async () => {
+    setPullDialogOpen(false)
+    setPullChanges(null)
+    await cancelPull()
+  }
+
+  const handleDiscard = async () => {
+    setShowDiscardDialog(false)
+    await discardLocal()
   }
 
   const toggleViewMode = () => {
@@ -631,7 +674,18 @@ export function MainPage({
                   </div>
                 )}
 
-                {error && (
+                {status && status.kind === 'success' && (
+                  <div className="text-sm text-emerald-700 dark:text-emerald-300 px-3 py-2 rounded-md bg-emerald-500/10 border border-emerald-500/30 font-medium flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    <span className="flex-1">{status.text}</span>
+                  </div>
+                )}
+                {status && status.kind === 'error' && (
+                  <div className="text-sm text-destructive px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 font-medium">
+                    {status.text}
+                  </div>
+                )}
+                {error && !status && (
                   <div className="text-sm text-destructive px-3 py-2 rounded-md bg-destructive/10 border border-destructive/20 font-medium">
                     {error}
                   </div>
@@ -644,9 +698,30 @@ export function MainPage({
                        Open Folder
                      </Button>
                      {mountStatus?.zenMode && (
-                       <Button variant="secondary" className="shadow-sm" disabled={loading === 'sync'} onClick={sync}>
-                         {loading === 'sync' ? 'Syncing...' : 'Sync Now'}
-                       </Button>
+                       <>
+                         <Button
+                           variant="ghost"
+                           size="icon"
+                           className="shadow-sm text-destructive hover:text-destructive hover:bg-destructive/10"
+                           disabled={loading === 'discard' || loading === 'pull' || loading === 'apply-pull' || loading === 'sync'}
+                           title="Discard local changes"
+                           onClick={() => setShowDiscardDialog(true)}
+                         >
+                           <Trash2 className="w-4 h-4" />
+                         </Button>
+                         <Button
+                           variant="outline"
+                           className="shadow-sm gap-1.5"
+                           disabled={loading === 'pull' || loading === 'apply-pull' || loading === 'sync' || loading === 'discard'}
+                           onClick={handlePullOnly}
+                         >
+                           <ArrowDownToLine className="w-3.5 h-3.5" />
+                           {loading === 'pull' ? 'Pulling...' : 'Pull Only'}
+                         </Button>
+                         <Button variant="secondary" className="shadow-sm" disabled={loading === 'sync' || loading === 'pull' || loading === 'apply-pull' || loading === 'discard'} onClick={sync}>
+                           {loading === 'sync' ? 'Syncing...' : 'Sync Now'}
+                         </Button>
+                       </>
                      )}
                      <Button variant="destructive" className="shadow-sm" disabled={loading === 'unmount' || loading === 'force-unmount'} onClick={handleUnmount}>
                        {loading === 'unmount' || loading === 'force-unmount' ? 'Unmounting...' : 'Unmount'}
@@ -710,6 +785,91 @@ export function MainPage({
             </Button>
             <Button variant="destructive" onClick={handleForceUnmount}>
               Force Unmount
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Pull-Only Incoming Changes Dialog */}
+      <Dialog
+        open={pullDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            handleCancelPull()
+          } else {
+            setPullDialogOpen(true)
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg" showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowDownToLine className="w-5 h-5" />
+              Incoming Changes
+            </DialogTitle>
+            <DialogDescription>
+              {pullChanges && pullChanges.length === 0
+                ? 'Your local cache is already up to date with Overleaf.'
+                : 'The following cached files have newer versions on Overleaf. Accepting will overwrite the local cache with the remote content.'}
+            </DialogDescription>
+          </DialogHeader>
+          {pullChanges && pullChanges.length > 0 && (
+            <div className="max-h-72 overflow-y-auto rounded-md border border-border/60 bg-muted/20">
+              <ul className="divide-y divide-border/40 text-sm">
+                {pullChanges.map((change) => (
+                  <li key={change.path} className="flex items-center gap-2 px-3 py-2">
+                    <span
+                      className={`text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${
+                        change.status === 'conflict'
+                          ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+                          : 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30'
+                      }`}
+                      title={change.status === 'conflict' ? 'You have local edits to this file — accepting will overwrite them' : undefined}
+                    >
+                      {change.status}
+                    </span>
+                    <span className="font-mono text-xs truncate flex-1" title={change.path}>{change.path}</span>
+                    <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
+                      {change.localSize}B → {change.remoteSize}B
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCancelPull}>
+              {pullChanges && pullChanges.length === 0 ? 'Close' : 'Cancel'}
+            </Button>
+            {pullChanges && pullChanges.length > 0 && (
+              <Button onClick={handleAcceptPull} disabled={loading === 'apply-pull'}>
+                {loading === 'apply-pull' ? 'Applying...' : `Accept ${pullChanges.length} change${pullChanges.length === 1 ? '' : 's'}`}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Discard Local Changes Dialog */}
+      <Dialog open={showDiscardDialog} onOpenChange={setShowDiscardDialog}>
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="w-5 h-5" />
+              Discard Local Changes
+            </DialogTitle>
+            <DialogDescription>
+              All locally cached edits that haven't been synced will be dropped, along with any local-only files (e.g. ignored or hidden files). The next read will fetch fresh content from Overleaf.
+              <br /><br />
+              <strong className="text-foreground">This cannot be undone.</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDiscardDialog(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDiscard} disabled={loading === 'discard'}>
+              {loading === 'discard' ? 'Discarding...' : 'Discard Changes'}
             </Button>
           </DialogFooter>
         </DialogContent>

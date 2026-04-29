@@ -30,6 +30,7 @@ export default function App() {
       logs={store.logs}
       loading={store.loading}
       error={store.error}
+      status={store.status}
       theme={store.theme}
       colorScheme={store.colorScheme}
       fontSize={store.fontSize}
@@ -46,9 +47,14 @@ export default function App() {
       unmount={store.unmount}
       forceUnmount={store.forceUnmount}
       sync={store.sync}
+      pullRemote={store.pullRemote}
+      applyPull={store.applyPull}
+      cancelPull={store.cancelPull}
+      discardLocal={store.discardLocal}
       openMountpoint={store.openMountpoint}
       clearLogs={store.clearLogs}
       clearError={store.clearError}
+      clearStatus={store.clearStatus}
       onLogout={store.logout}
     />
   )

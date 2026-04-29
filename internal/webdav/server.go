@@ -1,6 +1,7 @@
 package webdav
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -86,6 +87,10 @@ type OverleafFS struct {
 
 	localMu      sync.RWMutex
 	localEntries map[string]*localEntry
+
+	pullMu         sync.Mutex
+	pendingPull    map[string][]byte
+	pendingChanges []IncomingChange
 
 	treeFlight    singleflight.Group
 	projectFlight singleflight.Group
@@ -454,6 +459,166 @@ func (o *OverleafFS) DirtySummary() []FileStat {
 		})
 	}
 	return stats
+}
+
+// IncomingChange describes a file whose remote content differs from the locally
+// cached copy. It is produced by PullRemote() and consumed by ApplyPull().
+type IncomingChange struct {
+	Path        string `json:"path"`        // display path: "ProjectName/relPath"
+	ProjectName string `json:"projectName"` // sanitised project name
+	Name        string `json:"name"`        // file basename
+	Status      string `json:"status"`      // "modified" or "conflict"
+	LocalSize   int    `json:"localSize"`
+	RemoteSize  int    `json:"remoteSize"`
+}
+
+// PullRemote refreshes project trees and downloads the latest content for every
+// file the user has accessed. Files whose remote content differs from the cache
+// are returned as IncomingChange entries with their new content staged in
+// memory. Call ApplyPull() to write the staged content to the cache, or
+// CancelPull() to discard the staging without applying.
+func (o *OverleafFS) PullRemote() ([]IncomingChange, error) {
+	o.pullMu.Lock()
+	defer o.pullMu.Unlock()
+
+	o.pendingPull = make(map[string][]byte)
+	o.pendingChanges = nil
+
+	if err := o.refreshProjects(); err != nil {
+		return nil, err
+	}
+
+	var changes []IncomingChange
+
+	for _, project := range o.getActiveProjects() {
+		// Force a fresh tree from remote so renames/additions are reflected.
+		o.invalidateTree(project.ID)
+		tree, err := o.getProjectTree(project.ID)
+		if err != nil {
+			log.Printf("pull: failed to fetch tree for %s: %v", project.Name, err)
+			continue
+		}
+		if tree == nil || tree.root == nil {
+			continue
+		}
+
+		for relPath, entry := range tree.entries {
+			if relPath == "" || entry.folder != nil {
+				continue
+			}
+
+			var entityID, name string
+			var isDoc bool
+			folderID := ""
+			if entry.parentFolder != nil {
+				folderID = entry.parentFolder.ID
+			}
+			if entry.doc != nil {
+				entityID = entry.doc.ID
+				name = entry.doc.Name
+				isDoc = true
+			} else if entry.fileRef != nil {
+				entityID = entry.fileRef.ID
+				name = entry.fileRef.Name
+			} else {
+				continue
+			}
+
+			cacheKey := project.ID + "/" + entityID
+			cachedData, hasCached := o.Cache.Get(cacheKey)
+			if !hasCached {
+				continue
+			}
+
+			var remoteData []byte
+			var fetchErr error
+			if isDoc {
+				remoteData, fetchErr = o.getDocContent(project.ID, entityID)
+			} else {
+				remoteData, fetchErr = o.Client.DownloadFile(project.ID, entityID)
+			}
+			if fetchErr != nil {
+				log.Printf("pull: failed to fetch %s/%s: %v", project.Name, relPath, fetchErr)
+				continue
+			}
+
+			if bytes.Equal(remoteData, cachedData) {
+				continue
+			}
+
+			status := "modified"
+			if o.Cache.IsDirty(cacheKey) {
+				status = "conflict"
+			}
+
+			changes = append(changes, IncomingChange{
+				Path:        sanitizeName(project.Name) + "/" + relPath,
+				ProjectName: sanitizeName(project.Name),
+				Name:        name,
+				Status:      status,
+				LocalSize:   len(cachedData),
+				RemoteSize:  len(remoteData),
+			})
+			o.pendingPull[cacheKey] = remoteData
+			o.registerMeta(cacheKey, project.ID, folderID, name, relPath)
+		}
+	}
+
+	o.pendingChanges = changes
+	return changes, nil
+}
+
+// ApplyPull writes any content staged by PullRemote() into the cache as clean
+// (non-dirty) entries, overwriting local edits for files where the remote has
+// also changed. Returns the number of files updated.
+func (o *OverleafFS) ApplyPull() int {
+	o.pullMu.Lock()
+	defer o.pullMu.Unlock()
+
+	applied := 0
+	for cacheKey, data := range o.pendingPull {
+		o.Cache.Set(cacheKey, data)
+		applied++
+	}
+	o.pendingPull = nil
+	o.pendingChanges = nil
+	return applied
+}
+
+// CancelPull discards any content staged by PullRemote() without applying it.
+func (o *OverleafFS) CancelPull() {
+	o.pullMu.Lock()
+	defer o.pullMu.Unlock()
+	o.pendingPull = nil
+	o.pendingChanges = nil
+}
+
+// DiscardLocal drops every locally cached change so the next read will pull
+// fresh content from Overleaf. This includes:
+//   - dirty cached files that haven't been flushed yet, and
+//   - local-only entries (ignored or hidden files that never round-trip to
+//     Overleaf).
+//
+// Returns the number of cache/local-entry items removed.
+func (o *OverleafFS) DiscardLocal() int {
+	discarded := 0
+
+	for _, key := range o.Cache.DirtyKeys() {
+		o.Cache.Delete(key)
+		discarded++
+	}
+
+	o.localMu.Lock()
+	for key, entry := range o.localEntries {
+		if !entry.dir {
+			o.Cache.Delete(localCacheKey(entry.projectID, entry.relPath))
+		}
+		delete(o.localEntries, key)
+		discarded++
+	}
+	o.localMu.Unlock()
+
+	return discarded
 }
 
 // FlushAll uploads all dirty cached files to Overleaf.

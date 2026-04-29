@@ -146,3 +146,30 @@ export namespace model {
 
 }
 
+export namespace mount {
+	
+	export class IncomingChange {
+	    path: string;
+	    projectName: string;
+	    name: string;
+	    status: string;
+	    localSize: number;
+	    remoteSize: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new IncomingChange(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.projectName = source["projectName"];
+	        this.name = source["name"];
+	        this.status = source["status"];
+	        this.localSize = source["localSize"];
+	        this.remoteSize = source["remoteSize"];
+	    }
+	}
+
+}
+

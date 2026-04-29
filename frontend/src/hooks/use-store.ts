@@ -16,6 +16,10 @@ import {
   Unmount,
   ForceUnmount,
   Sync,
+  PullRemote,
+  ApplyPull,
+  CancelPull,
+  DiscardLocal,
   OpenMountpoint,
   IsBrowserLoginSupported,
   ListCredentials,
@@ -23,8 +27,11 @@ import {
   LoginWithCredential,
   DeleteCredential,
 } from '../../wailsjs/go/gui/App'
-import type { gui, credential } from '../../wailsjs/go/models'
+import type { gui, credential, mount } from '../../wailsjs/go/models'
 import type { model } from '../../wailsjs/go/models'
+
+export type StatusKind = 'success' | 'error'
+export type StatusMessage = { kind: StatusKind; text: string } | null
 
 export type Theme = 'light' | 'dark' | 'system'
 export type ColorScheme = 'classic' | 'sage' | 'rose' | 'blue' | 'lavender'
@@ -50,6 +57,7 @@ export function useStore() {
   const [logs, setLogs] = useState<string[]>([])
   const [loading, setLoading] = useState('')
   const [error, setError] = useState('')
+  const [status, setStatus] = useState<StatusMessage>(null)
   const [version, setVersion] = useState('')
   const [envDefaults, setEnvDefaults] = useState<Record<string, string>>({})
   const [browserLoginSupported, setBrowserLoginSupported] = useState(false)
@@ -256,11 +264,62 @@ export function useStore() {
 
   const sync = useCallback(async () => {
     setLoading('sync')
+    setError('')
+    setStatus(null)
     try {
       const msg = await Sync()
-      setError(msg)
+      setStatus({ kind: 'success', text: msg })
     } catch (e: unknown) {
-      setError(String(e))
+      setStatus({ kind: 'error', text: String(e) })
+    } finally {
+      setLoading('')
+    }
+  }, [])
+
+  const pullRemote = useCallback(async (): Promise<mount.IncomingChange[]> => {
+    setLoading('pull')
+    setError('')
+    setStatus(null)
+    try {
+      const changes = await PullRemote()
+      return changes || []
+    } catch (e: unknown) {
+      setStatus({ kind: 'error', text: String(e) })
+      throw e
+    } finally {
+      setLoading('')
+    }
+  }, [])
+
+  const applyPull = useCallback(async () => {
+    setLoading('apply-pull')
+    try {
+      const msg = await ApplyPull()
+      setStatus({ kind: 'success', text: msg })
+    } catch (e: unknown) {
+      setStatus({ kind: 'error', text: String(e) })
+    } finally {
+      setLoading('')
+    }
+  }, [])
+
+  const cancelPull = useCallback(async () => {
+    try {
+      await CancelPull()
+    } catch {
+      // ignore — staging is best-effort
+    }
+  }, [])
+
+  const discardLocal = useCallback(async () => {
+    setLoading('discard')
+    setError('')
+    setStatus(null)
+    try {
+      const msg = await DiscardLocal()
+      setStatus({ kind: 'success', text: msg })
+    } catch (e: unknown) {
+      setStatus({ kind: 'error', text: String(e) })
     } finally {
       setLoading('')
     }
@@ -292,7 +351,11 @@ export function useStore() {
   }, [])
 
   const clearLogs = useCallback(() => setLogs([]), [])
-  const clearError = useCallback(() => setError(''), [])
+  const clearError = useCallback(() => {
+    setError('')
+    setStatus(null)
+  }, [])
+  const clearStatus = useCallback(() => setStatus(null), [])
 
   return {
     version,
@@ -303,6 +366,7 @@ export function useStore() {
     logs,
     loading,
     error,
+    status,
     envDefaults,
     browserLoginSupported,
     savedCredentials,
@@ -324,9 +388,14 @@ export function useStore() {
     unmount,
     forceUnmount,
     sync,
+    pullRemote,
+    applyPull,
+    cancelPull,
+    discardLocal,
     openMountpoint,
     logout,
     clearLogs,
     clearError,
+    clearStatus,
   }
 }

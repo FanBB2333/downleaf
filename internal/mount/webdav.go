@@ -121,6 +121,53 @@ func (w *webdavBackend) DirtySummary() []FileStat {
 	return stats
 }
 
+func (w *webdavBackend) PullRemote() ([]IncomingChange, error) {
+	ofs, _, _ := w.snapshot()
+	if ofs == nil {
+		return nil, nil
+	}
+	davChanges, err := ofs.PullRemote()
+	if err != nil {
+		return nil, err
+	}
+	changes := make([]IncomingChange, len(davChanges))
+	for i, c := range davChanges {
+		changes[i] = IncomingChange{
+			Path:        c.Path,
+			ProjectName: c.ProjectName,
+			Name:        c.Name,
+			Status:      c.Status,
+			LocalSize:   c.LocalSize,
+			RemoteSize:  c.RemoteSize,
+		}
+	}
+	return changes, nil
+}
+
+func (w *webdavBackend) ApplyPull() int {
+	ofs, _, _ := w.snapshot()
+	if ofs == nil {
+		return 0
+	}
+	return ofs.ApplyPull()
+}
+
+func (w *webdavBackend) CancelPull() {
+	ofs, _, _ := w.snapshot()
+	if ofs == nil {
+		return
+	}
+	ofs.CancelPull()
+}
+
+func (w *webdavBackend) DiscardLocal() int {
+	ofs, _, _ := w.snapshot()
+	if ofs == nil {
+		return 0
+	}
+	return ofs.DiscardLocal()
+}
+
 func (w *webdavBackend) snapshot() (*dav.OverleafFS, *dav.Server, string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()

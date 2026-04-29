@@ -33,6 +33,22 @@ type Backend interface {
 
 	// DirtySummary returns stats about locally modified files.
 	DirtySummary() []FileStat
+
+	// PullRemote fetches the latest remote content for cached files and stages
+	// any differences. Call ApplyPull to write them into the cache, or
+	// CancelPull to discard.
+	PullRemote() ([]IncomingChange, error)
+
+	// ApplyPull writes content staged by PullRemote into the cache, returning
+	// the number of files updated.
+	ApplyPull() int
+
+	// CancelPull discards content staged by PullRemote without applying.
+	CancelPull()
+
+	// DiscardLocal removes all dirty cached files and local-only entries so
+	// subsequent reads pull fresh content from the remote.
+	DiscardLocal() int
 }
 
 // ErrMountBusy indicates the mount point is busy and cannot be unmounted gracefully.
@@ -53,6 +69,17 @@ type FileStat struct {
 	Name  string
 	Lines int
 	Bytes int
+}
+
+// IncomingChange describes a remote-side change for a file the user has
+// already cached. Mirrors webdav.IncomingChange.
+type IncomingChange struct {
+	Path        string `json:"path"`
+	ProjectName string `json:"projectName"`
+	Name        string `json:"name"`
+	Status      string `json:"status"`
+	LocalSize   int    `json:"localSize"`
+	RemoteSize  int    `json:"remoteSize"`
 }
 
 // ────────────────────────────────────────────────────────────────────────────

@@ -3,8 +3,15 @@
 import {gui} from '../models';
 import {credential} from '../models';
 import {model} from '../models';
+import {mount} from '../models';
+
+export function ApplyPull():Promise<string>;
+
+export function CancelPull():Promise<void>;
 
 export function DeleteCredential(arg1:string):Promise<void>;
+
+export function DiscardLocal():Promise<string>;
 
 export function ForceUnmount():Promise<void>;
 
@@ -39,6 +46,8 @@ export function LoginWithCredential(arg1:string):Promise<gui.LoginStatus>;
 export function Mount(arg1:Array<string>,arg2:string,arg3:boolean,arg4:boolean):Promise<void>;
 
 export function OpenMountpoint():Promise<void>;
+
+export function PullRemote():Promise<Array<mount.IncomingChange>>;
 
 export function SetBackend(arg1:string):Promise<void>;
 

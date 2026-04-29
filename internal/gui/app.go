@@ -334,6 +334,77 @@ func (a *App) Sync() (string, error) {
 	return msg, nil
 }
 
+// PullRemote fetches the latest content from Overleaf for every cached file
+// and stages any differences. Call ApplyPull to apply the staged content,
+// or CancelPull to discard it.
+func (a *App) PullRemote() ([]mount.IncomingChange, error) {
+	a.mu.Lock()
+	backend := a.backend
+	mounted := a.mounted
+	a.mu.Unlock()
+
+	if !mounted || backend == nil {
+		return nil, fmt.Errorf("not mounted")
+	}
+
+	changes, err := backend.PullRemote()
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("Pull preview: %d incoming change(s)", len(changes))
+	return changes, nil
+}
+
+// ApplyPull writes content staged by PullRemote into the cache.
+func (a *App) ApplyPull() (string, error) {
+	a.mu.Lock()
+	backend := a.backend
+	mounted := a.mounted
+	a.mu.Unlock()
+
+	if !mounted || backend == nil {
+		return "", fmt.Errorf("not mounted")
+	}
+
+	applied := backend.ApplyPull()
+	msg := fmt.Sprintf("Pull complete: %d file(s) updated from remote", applied)
+	log.Print(msg)
+	return msg, nil
+}
+
+// CancelPull discards content staged by PullRemote without applying it.
+func (a *App) CancelPull() error {
+	a.mu.Lock()
+	backend := a.backend
+	mounted := a.mounted
+	a.mu.Unlock()
+
+	if !mounted || backend == nil {
+		return fmt.Errorf("not mounted")
+	}
+
+	backend.CancelPull()
+	return nil
+}
+
+// DiscardLocal drops every locally cached change so the next read pulls fresh
+// content from Overleaf.
+func (a *App) DiscardLocal() (string, error) {
+	a.mu.Lock()
+	backend := a.backend
+	mounted := a.mounted
+	a.mu.Unlock()
+
+	if !mounted || backend == nil {
+		return "", fmt.Errorf("not mounted")
+	}
+
+	discarded := backend.DiscardLocal()
+	msg := fmt.Sprintf("Discarded %d local change(s)", discarded)
+	log.Print(msg)
+	return msg, nil
+}
+
 // GetMountStatus returns current mount state.
 func (a *App) GetMountStatus() *MountStatus {
 	a.mu.Lock()
