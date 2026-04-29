@@ -13,7 +13,7 @@
   "info": {
     "companyName": "downleaf",
     "productName": "Downleaf",
-    "productVersion": "0.3.5",
+    "productVersion": "0.3.6",
     "copyright": "",
     "comments": "Mount Overleaf projects as a local filesystem"
   }
